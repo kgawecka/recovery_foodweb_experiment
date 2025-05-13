@@ -9,8 +9,9 @@ library(ggpubr)
 # define palettes
 palette_landscape <- c("#4ea33a80","#357029ff","#307ecd80","#1d4d7cff")
 palette_community <- c("black","#4da43aff","#2f7eceff")
-col_green <- "#4da43aff"
 col_blue <- "#2f7eceff"
+col_green <- "#4da43aff"
+col_purple <- "#8e1558ff"
 
 # MODEL PARAMETERS ----
 
@@ -1246,7 +1247,7 @@ plot_model_prediction_fullfig <- function(data_pop, data_metapop, aphid_plot, la
     droplevels()
   
   # plot
-  plot_empty = plot_model_prediction_partfig(data_test, fig_col="black")
+  plot_empty = plot_model_prediction_partfig(data_test, fig_col=col_blue)
   
   
   # POPULATED PATCHES
@@ -1271,7 +1272,7 @@ plot_model_prediction_fullfig <- function(data_pop, data_metapop, aphid_plot, la
     droplevels()
   
   # plot
-  plot_meta = plot_model_prediction_partfig(data_test, fig_col=col_blue)
+  plot_meta = plot_model_prediction_partfig(data_test, fig_col=col_purple)
   
   # combine plots
   plot_out = ggarrange(plot_empty, plot_populated, plot_meta,
@@ -1863,7 +1864,7 @@ ggplot(data=filter(data_plot_land, aphid=="BB", community=="BB", scale=="empty p
   geom_jitter() +
   geom_boxplot(alpha=0) +
   facet_grid(~land, scales="free_y") +
-  scale_color_gradient(low="lightgrey", high="black") +
+  scale_color_gradient(low="lightgrey", high=col_blue) +
   labs(y="ln(recovery credit +1)", col="recovery\ncredit") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
@@ -1913,7 +1914,7 @@ p1 = ggplot(data=filter(data_plot_comm, aphid=="BB", scale=="empty patches"),
   geom_jitter() +
   geom_boxplot(alpha=0) +
   facet_wrap(~scale, scales="free_y") +
-  scale_color_gradient(low="lightgrey", high="black") +
+  scale_color_gradient(low="lightgrey", high=col_blue) +
   labs(y="ln(recovery credit +1)") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
@@ -1943,7 +1944,7 @@ p3 = ggplot(data=filter(data_plot_comm, aphid=="BB", scale=="metapopulation"),
   geom_jitter() +
   geom_boxplot(alpha=0) +
   facet_wrap(~scale, scales="free_y") +
-  scale_color_gradient(low="lightgrey", high=col_blue, breaks=c(5000,20000,35000)) +
+  scale_color_gradient(low="lightgrey", high=col_purple, breaks=c(5000,20000,35000)) +
   labs(y="ln(recovery credit +1)") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),

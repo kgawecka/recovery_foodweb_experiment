@@ -12,8 +12,9 @@ library(ggpubr)
 # define palettes
 palette_landscape <- c("#4ea33a80","#357029ff","#307ecd80","#1d4d7cff")
 palette_community <- c("black","#4da43aff","#2f7eceff")
-col_green <- "#4da43aff"
 col_blue <- "#2f7eceff"
+col_green <- "#4da43aff"
+col_purple <- "#8e1558ff"
 
 
 # DATA IMPORT ----
@@ -233,7 +234,7 @@ plot_model_prediction_fullfig <- function(data_pop, data_metapop, aphid_plot){
     droplevels()
   
   # plot
-  plot_empty = plot_model_prediction_partfig(data_test, fig_col="black")
+  plot_empty = plot_model_prediction_partfig(data_test, fig_col=col_blue)
   
   
   # POPULATED PATCHES
@@ -258,7 +259,7 @@ plot_model_prediction_fullfig <- function(data_pop, data_metapop, aphid_plot){
     droplevels()
   
   # plot
-  plot_meta = plot_model_prediction_partfig(data_test, fig_col=col_blue)
+  plot_meta = plot_model_prediction_partfig(data_test, fig_col=col_purple)
   
   # combine plots
   plot_out = ggarrange(plot_empty, plot_populated, plot_meta,
