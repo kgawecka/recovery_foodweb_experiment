@@ -1,6 +1,6 @@
 # Ecological recovery: the roles of space and food web complexity
 
-This repository contains the data and code used in the manuscript [Gawecka et al. (2025) "The roles of space and food web complexity in mediating ecological recovery"](INSERT_URL).
+This repository contains the data and code used in the manuscript [Gawecka et al. (2025) "The roles of space and food web complexity in mediating ecological recovery"](https://www.biorxiv.org/content/10.1101/2025.05.13.653715v1).
 
 ## `Code`
 All code was created in R version 4.4.0.
