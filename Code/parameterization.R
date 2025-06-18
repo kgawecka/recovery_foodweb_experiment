@@ -676,8 +676,7 @@ ggarrange(p1,p2,p3,p4, nrow=2, ncol=2, common.legend=TRUE, legend="bottom")
 # import experimental data
 data_ptoid_max_parasit <- read_excel("Data/parameterization_data.xlsx", sheet = "PTOID - MAX PARASIT") %>%
   dplyr::select("aphid_species", "replica", "no_mummies") %>%
-  mutate(replica=as.factor(replica)) %>%
-  filter(no_mummies>0)
+  mutate(replica=as.factor(replica))
 
 # plot experimental data
 ggplot(data=data_ptoid_max_parasit,
@@ -693,8 +692,7 @@ pmax <- mean(data_ptoid_max_parasit$no_mummies)
 # import experimental data
 data_ptoid_function <- read_excel("Data/parameterization_data.xlsx", sheet = "PTOID - FUNCTION") %>%   
   dplyr::select("aphid_species", "initial_no_aphids", "replica", "no_mummies") %>%   
-  mutate(replica=as.factor(replica)) %>%   
-  filter(no_mummies>0)
+  mutate(replica=as.factor(replica))
 
 # plot experimental data
 ggplot(data=data_ptoid_function, aes(x=initial_no_aphids, y=no_mummies)) +

@@ -5,65 +5,70 @@ library(dplyr)
 library(ggplot2)
 library(marginaleffects)
 library(ggpubr)
+library(igraph)
+library(data.table)
+library(forcats)
 
 # define palettes
-palette_landscape <- c("#4ea33a80","#357029ff","#307ecd80","#1d4d7cff")
-palette_community <- c("black","#4da43aff","#2f7eceff")
-col_blue <- "#2f7eceff"
-col_green <- "#4da43aff"
-col_purple <- "#8e1558ff"
+palette_landscape = c("#4ea33a80","#357029ff","#307ecd80","#1d4d7cff")
+palette_community = c("black","#4da43aff","#2f7eceff")
+col_blue = "#2f7eceff"
+col_green = "#4da43aff"
+col_purple = "#8e1558ff"
+col_blue_dark = "#1d4d7cff"
+col_green_dark = "#357029ff"
+col_orange = "#D55E00"
+col_orange_dark = "#994400ff"
+col_green_light = "#4ea33a80"
+
+# figure widths
+width_singlecol = 82
+width_twothirds = 110
+width_fullpage = 173
+
+
+# GENERATE LANDSCAPE ----
+
+# generate scale-free network
+n_nodes = 50
+g = sample_pa(n=n_nodes, power=1, m=1, directed=FALSE)
+
+# check for isolated nodes
+isolated_nodes = V(g)[degree(g) == 0]
+cat("Number of isolated nodes:", length(isolated_nodes), "\n")
+
+# plot the network
+plot(g, vertex.size = 5, vertex.label = NA, layout = layout_with_fr)
+
+# convert to adjacency matrix
+M_adj = as_adjacency_matrix(g, sparse=FALSE)
+
+sum(M_adj)/n_nodes # number of links per node
+hist(rowSums(M_adj)) # degree distribution
+
+# write out adjacency matrix
+write.table(M_adj, paste0("Output/M_land_",n_nodes,".csv"), row.names=FALSE, col.names=FALSE)
+
 
 # MODEL PARAMETERS ----
 
 # import dataframe with model parameters
 # determined from parametrization experiments
-model_parameters <- read.csv("Data/model_parameters.csv")
-
-# BB
-r1_CI = as.numeric(model_parameters[model_parameters$parameter=="r1",3:4]) # growth rate confidence interval
-alpha11_CI = as.numeric(model_parameters[model_parameters$parameter=="alpha11",3:4]) # intraspecific competition confidence interval
-alpha12_CI = as.numeric(model_parameters[model_parameters$parameter=="alpha12",3:4]) # interspecific competition confidence interval
-e1_CI = as.numeric(model_parameters[model_parameters$parameter=="e1",3:4]) # emigration rate confidence interval
-Ae1 = as.numeric(model_parameters[model_parameters$parameter=="Ae1",2]) # minimum density for emigration
-beta1_CI = as.numeric(model_parameters[model_parameters$parameter=="beta1",3:4]) # parasitoid rate confidence interval (type I response)
-
-# LE
-r2_CI = as.numeric(model_parameters[model_parameters$parameter=="r2",3:4]) # growth rate confidence interval
-alpha22_CI = as.numeric(model_parameters[model_parameters$parameter=="alpha22",3:4]) # intraspecific competition confidence interval
-alpha21_CI = as.numeric(model_parameters[model_parameters$parameter=="alpha21",3:4]) # interspecific competition confidence interval
-e2_CI = as.numeric(model_parameters[model_parameters$parameter=="e2",3:4]) # emigration rate confidence interval
-Ae2 = as.numeric(model_parameters[model_parameters$parameter=="Ae2",2]) # minimum density for emigration
-beta2_CI = as.numeric(model_parameters[model_parameters$parameter=="beta2",3:4]) # parasitoid rate confidence interval (type I response)
-
-# DR
-pmax = as.numeric(model_parameters[model_parameters$parameter=="pmax",2]) # maximum parasitization
-tau = round(as.numeric(model_parameters[model_parameters$parameter=="tau",2]),0) # time to emergence
-f = as.numeric(model_parameters[model_parameters$parameter=="f",2]) # fraction of females
-lambda = 7 # lifespan 
-eP = as.numeric(model_parameters[model_parameters$parameter=="eP",2]) # emigration rate
-Pe = as.numeric(model_parameters[model_parameters$parameter=="Pe",2]) # minimum density for emigration
+species_parameters = read.csv("Data/model_parameters.csv")
 
 # simulation inputs
 n_rep = 100 # number of replicas
 dt = 1 # timestep size
 tmax = 26 # maxmimum number of timesteps
-M_adj = matrix(c(0,1,1,1,1,
-                 1,0,0,0,0,
-                 1,0,0,0,0,
-                 1,0,0,0,0,
-                 1,0,0,0,0), 5,5) # patch connectivity matrix
-A10 = 10 # initial number of BB
-A20 = 10 # initial number of LE
-P0 = 1 # initial number of DR
+N0 = c(10,10,10,1,1,1) # initial number of aphid1, ahpid2, aphid3, ptoid1, ptoid2, hyper
 
 
 # FUNCTIONS ----
 
-# dynamics functions
-
-# single aphid species
-dt_one_aphid = function(r, alpha, Ae, e, A0, 
-                        dt, tmax, patch_state, M_adj){
+# run dynamics
+f_dynamics = function(r, alpha, Ae, e, beta, gamma, pmax, f, tau, lambda, Pe, eP,
+                      N0, n_aphid, n_ptoid, n_hyper,
+                      M_land, patch_state, dt, tmax){
   
   # time vector
   time = seq(0,tmax,dt)
@@ -72,973 +77,395 @@ dt_one_aphid = function(r, alpha, Ae, e, A0,
   n_dt = length(time)
   
   # nummber of patches
-  n_patch = nrow(M_adj)
+  n_patch = nrow(M_land)
   
   # number of connections of patches
-  c = rowSums(M_adj)
+  c = rowSums(M_land)
   
-  # initialise aphid density matrix
-  A = matrix(0,n_dt,n_patch)
-  A[1,patch_state==1] = A0
+  # initialise aphid density array
+  A = array(0, c(n_dt,n_patch,n_aphid))
+  A[1,patch_state==1,] = N0[1:n_aphid]
   
   # initialise matrix of community and dispersal contributions
-  dA_comm = matrix(0,n_dt,n_patch)
-  dA_disp = matrix(0,n_dt,n_patch)
+  dA_comm = array(0, c(n_dt,n_patch,n_aphid))
+  dA_disp = array(0, c(n_dt,n_patch,n_aphid))
+  
+  # initialise female parasitoid/hyperparasitoid density matrix,
+  # number of parasitized aphids/parasitoids at each timestep, amd
+  # max number of parasitized aphids per timestep
+  if(n_ptoid>0){
+    P = array(0, c(n_dt,n_patch,n_ptoid))
+    P[1:(lambda-1),patch_state==1,] = N0[4:(3+n_ptoid)]
+    A_parasit = array(0, c(n_dt,n_patch,n_ptoid))
+    pmax_dt = pmax / ((lambda-1)/dt)
+  }
+  if(n_hyper==1){
+    H = matrix(0,n_dt,n_patch)
+    H[1:(lambda-1),patch_state==1] = N0[6]
+    P_parasit = matrix(0,n_dt,n_patch)
+  }
+  
+  #P_births = array(0, c(n_dt,n_patch,n_ptoid))
+  #P_deaths = array(0, c(n_dt,n_patch,n_ptoid))
+  #P_emig = array(0, c(n_dt,n_patch,n_ptoid))
+  #P_imig = array(0, c(n_dt,n_patch,n_ptoid))
+  #H_births = matrix(0,n_dt,n_patch)
+  #H_deaths = matrix(0,n_dt,n_patch)
+  #H_emig = matrix(0,n_dt,n_patch)
+  #H_imig = matrix(0,n_dt,n_patch)
   
   for(t in 1:(n_dt-1)){
     
+    # initialise matrix for post-dispersal densities
+    A_disp = matrix(0,n_patch,n_aphid)
+    if(n_ptoid>0){
+      P_disp = matrix(0,n_patch,n_ptoid)
+    }
+    if(n_hyper==1){
+      H_disp = rep(0,n_patch)
+    }
+    
+    # 1st k loop - dispersal dynamics
     for(k in 1:n_patch){
       
-      # GROWTH & COMPETITION
-      
-      # change in A due to growth
-      dA_growth_comp = A[t,k]*exp((r-alpha*A[t,k])*dt) - A[t,k]
-      
-      # EMIGRATION
-      
+      # EMIGRATION - APHID
       # delta for emigration
-      delta = ifelse(A[t,k]<Ae, 0, 1)
-      
+      deltaA = ifelse(A[t,k,]<Ae, 0, 1)
       # change in A due to emigration
-      dA_emig = delta*e*(A[t,k]-Ae) * dt
+      dA_emig = deltaA * e * (A[t,k,]-Ae) * dt
+      
+      # EMIGRATION - PARASITOID
+      if(n_ptoid>0){
+        deltaP = ifelse(P[t,k,]<Pe, 0, 1)
+        dP_emig = deltaP * eP * (P[t,k,]-Pe) * dt
+      }
+      
+      # EMIGRATION - HYPERPARASITOID
+      if(n_hyper>0){
+        deltaH = ifelse(H[t,k]<Pe, 0, 1)
+        dH_emig = deltaH * eP * (H[t,k]-Pe) * dt
+      }
       
       # IMIGRATION
-      
       # neighbours of patch k
-      k_neigh = which(M_adj[k,]==1)
+      k_neigh = which(M_land[k,]==1)
       
       # initialise dA due to immigration
-      dA_immig = 0
+      dA_immig = rep(0,n_aphid)
+      if(n_ptoid>0){dP_immig = rep(0,n_ptoid)}
+      if(n_hyper>0){dH_immig = 0}
       
       # loop through neighbouring patches
       for(n in k_neigh){
         
+        # APHID
         # delta of neighbouring patch
-        delta_neigh = ifelse(A[t,n]<Ae, 0, 1)
+        deltaA_neigh = ifelse(A[t,n,]<Ae, 0, 1)
+        # update population change due to immigration
+        dA_immig = dA_immig + deltaA_neigh * e * (A[t,n,]-Ae)/c[n] * dt
         
-        # update dA due to immigration
-        dA_immig = dA_immig + delta_neigh*e*(A[t,n]-Ae)/c[n] * dt
+        # PARASITOID
+        if(n_ptoid>0){
+          deltaP_neigh = ifelse(P[t,n,]<Pe, 0, 1)
+          dP_immig = dP_immig + deltaP_neigh * eP * (P[t,n,]-Pe)/c[n] * dt
+        }
+        
+        # HYPERPARASITOID
+        if(n_hyper>0){
+          deltaH_neigh = ifelse(H[t,n]<Pe, 0, 1)
+          dH_immig = dH_immig + deltaH_neigh * eP * (H[t,n]-Pe)/c[n] * dt
+        }
       }
       
-      # new population size
-      A[t+1,k] = A[t,k] + dA_growth_comp - dA_emig + dA_immig
+      # NEW POPULATION SIZE
       
-      if(is.nan(A[t+1,k])){
+      # APHID
+      A_disp[k,] = A[t,k,] - dA_emig + dA_immig
+      if(any(is.nan(A_disp[k,]))){
         print("Error: A=NaN")
         break}
-      if(A[t+1,k]<0){A[t+1,k]=0}
+      A_disp[k,] = ifelse(A_disp[k,]<0,0,A_disp[k,])
       
-      # store community and dispersal contributions
-      dA_comm[t+1,k] = dA_growth_comp
-      dA_disp[t+1,k] = - dA_emig + dA_immig
+      # PARASITOID
+      if(n_ptoid>0){
+        P_disp[k,] = P[t,k,] - dP_emig + dP_immig
+        P_disp[k,] = ifelse(P_disp[k,]<0,0,P_disp[k,])
+        
+        #P_emig[t,k,] = dP_emig
+        #P_imig[t,k,] = dP_immig
+      }
+      
+      # HYPERPARASITOID
+      if(n_hyper>0){
+        H_disp[k] = H[t,k] - dH_emig + dH_immig
+        H_disp[k] = ifelse(H_disp[k]<0,0,H_disp[k])
+        
+        #H_emig[t,k] = dH_emig
+        #H_imig[t,k] = dH_immig
+      }
+      
+      # store dispersal contributions
+      dA_disp[t+1,k,] = - dA_emig + dA_immig
+      
+    } # k loop
+    
+    # 2nd k look - community dynamics
+    for(k in 1:n_patch){
+      
+      # GROWTH & COMPETITION - APHID
+      
+      # change in A due to growth
+      dA_growth_comp = A_disp[k,] * exp((r - alpha %*% A_disp[k,])*dt) - A_disp[k,]
+      
+      # PREDATION - PARASITOID ON APHID
+      # initialise change in A due to parasitism
+      dA_parasit = rep(0,n_aphid)
+      if(n_ptoid>0){
+        
+        # potential number of parasitized aphids of each species (type I response)
+        A_parasit_max = A_disp[k,] * beta * P_disp[k,] * dt
+        
+        # proportional parasitoid preference
+        beta_prop = beta / apply(beta,1,sum)
+        
+        # check if number of parasitized aphids > total number of aphids
+        # if true, set number of parasitized aphids to total number of aphids
+        # according to parasitoid preference
+        A_parasit_exc = rowSums(A_parasit_max)>A_disp[k,]
+        A_parasit_max[A_parasit_exc,] = A_disp[k,A_parasit_exc] * beta_prop[A_parasit_exc,]
+        
+        # number of aphids parasitized by each parasitoid
+        if(n_ptoid==1){
+          n_parasit_P = sum(A_parasit_max)
+        }else{
+          n_parasit_P = colSums(A_parasit_max)
+        }
+        
+        # potential number of parasitized aphids by each parasitoid
+        parasit_max_P = pmax_dt*P_disp[k,]
+        
+        for(i in 1:n_ptoid){
+          # check if maximum number of parasitized aphids exceeded
+          if(n_parasit_P[i] > parasit_max_P[i]){
+            # total number of parasitized aphids
+            A_parasit[t,k,i] = parasit_max_P[i] 
+            # change in A due to parasitism
+            dA_parasit = dA_parasit + parasit_max_P[i] * A_parasit_max[,i] / n_parasit_P[i]
+          } else {
+            # total number of parasitized aphids
+            A_parasit[t,k,i] = n_parasit_P[i]
+            # change in A due to parasitism
+            dA_parasit = dA_parasit + A_parasit_max[,i]
+          }
+        }
+        
+      }
+      
+      # PREDATION - HYPERPARASITOIDS ON PARASITOID 
+      if(n_hyper>0){
+        
+        # potential number of parasitized parasitoids (type I response)
+        P_parasit_max = A_parasit[t,k,] * gamma * H_disp[k] * dt
+        
+        # check if number of parasitized parasitoids > total number of mummies
+        # if true, set number of parasitized parasitoids to total number of mummies
+        P_parasit_exc = P_parasit_max>A_parasit[t,k,]
+        P_parasit_max[P_parasit_exc] = A_parasit[t,k,P_parasit_exc]
+        
+        # number of parasitoids parasitized
+        n_parasit = sum(P_parasit_max)
+        
+        # potential number of parasitized parasitoids
+        parasit_max = pmax_dt*H_disp[k]
+        
+        # check if maximum number of parasitized parasitoids exceeded
+        if(n_parasit > parasit_max){
+          # total number of parasitized parasitoids
+          P_parasit[t,k] = parasit_max
+          # change in P due to parasitism
+          dP_parasit = parasit_max_P * P_parasit_max / n_parasit
+        } else {
+          # total number of parasitized parasitoids
+          P_parasit[t,k] = n_parasit
+          # change in P due to parasitism
+          dP_parasit = P_parasit_max
+        }
+        
+        # update number of parasitized aphids (mummies without parasitoid)
+        A_parasit[t,k,] = A_parasit[t,k,] - dP_parasit
+      }
+      
+      # BIRTHS & DEATHS - PARASITOID
+      if(n_ptoid>0){
+        
+        # dP due to births
+        if(t*dt>tau){
+          dP_birth = f*A_parasit[t-(tau)/dt,k,]
+        } else {
+          dP_birth = rep(0,n_ptoid)
+        }
+        
+        # total number of parasitoids across all patches
+        if(n_ptoid==1){
+          P_total = sum(P_disp)
+        }else{
+          P_total = colSums(P_disp)
+        }
+        
+        # dP due to deaths
+        if(t*dt==(lambda-1)){
+          dP_death = P_disp[k,]
+        } else if(t*dt>(tau+lambda-1)) {
+          # total emerged at t-(lambda-1)
+          # = total parasitised at t-(tau+lambda-1)
+          # = total deaths across all patches
+          if(n_ptoid==1){
+            P_death_total = sum(f*A_parasit[t-(tau+lambda-1)/dt,,])
+          }else{
+            P_death_total = colSums(f*A_parasit[t-(tau+lambda-1)/dt,,])
+          }
+          # number of deaths in current patch (proportional to number of ptoids)
+          dP_death = P_disp[k,]/P_total * P_death_total
+          dP_death[is.nan(dP_death)] = 0
+        } else {
+          dP_death = rep(0,n_ptoid)
+        }
+        
+      }
+      
+      # BIRTHS & DEATHS - HYPERPARASITOID
+      if(n_hyper>0){
+        
+        # dH due to births
+        if(t*dt>tau){
+          dH_birth = f*P_parasit[t-(tau)/dt,k]
+        } else {
+          dH_birth = 0
+        }
+        
+        # total number of hyperparasitoids across all patches
+        H_total = sum(H_disp)
+        
+        # dH due to deaths
+        if(t*dt==(lambda-1)){
+          dH_death = H_disp[k]
+        } else if(t*dt>(tau+lambda-1) & H_total>0) {
+          # total emerged at t-(lambda-1)
+          # = total parasitised at t-(tau+lambda-1)
+          # = total deaths across all patches
+          H_death_total = sum(f*P_parasit[t-(tau+lambda-1)/dt,])
+          # number of deaths in current patch (proportional to number of ptoids)
+          dH_death = H_disp[k]/H_total * H_death_total
+        } else {
+          dH_death = 0
+        }
+        
+      }
+      
+      # NEW POPULATION SIZE
+      
+      # APHID
+      A[t+1,k,] = A_disp[k,] + dA_growth_comp - dA_parasit
+      if(any(is.nan(A[t+1,k,]))){
+        print("Error: A=NaN")
+        break}
+      A[t+1,k,] = ifelse(A[t+1,k,]<0,0,A[t+1,k,])
+      
+      # PARASITOID
+      if(n_ptoid>0){
+        P[t+1,k,] = P_disp[k,] + dP_birth - dP_death
+        P[t+1,k,] = ifelse(P[t+1,k,]<0,0,P[t+1,k,])
+        
+        #P_births[t,k,] = dP_birth
+        #P_deaths[t,k,] = dP_death
+      }
+      
+      # HYPERPARASITOID
+      if(n_hyper>0){
+        H[t+1,k] = H_disp[k] + dH_birth - dH_death
+        H[t+1,k] = ifelse(H[t+1,k]<0,0,H[t+1,k])
+        
+        #H_births[t,k] = dH_birth
+        #H_deaths[t,k] = dH_death
+      }
+      
+      # store community contributions
+      dA_comm[t+1,k,] = dA_growth_comp - dA_parasit
       
     } # k loop
     
   } # t loop
   
   # output dataframe
-  df_out = data.frame(expand.grid(t=time, patch=1:n_patch),
+  df_out = data.frame(expand.grid(t=time, patch=1:n_patch, species=paste0("A",1:n_aphid)),
                       population_size=as.vector(A),
                       dN_comm=as.vector(dA_comm),
                       dN_disp=as.vector(dA_disp))
-  
-  return(df_out)
-}
-
-# two aphid species
-dt_two_aphid = function(r1, r2, alpha11, alpha22, alpha12, alpha21, 
-                        Ae1, Ae2, e1, e2, A10, A20,
-                        dt, tmax, patch_state, M_adj){
-  
-  # time vector
-  time = seq(0,tmax,dt)
-  
-  # number of time steps
-  n_dt = length(time)
-  
-  # nummber of patches
-  n_patch = nrow(M_adj)
-  
-  # number of connections of patches
-  c = rowSums(M_adj)
-  
-  # initialise aphid density matrix
-  A1 = matrix(0,n_dt,n_patch)
-  A1[1,patch_state==1] = A10
-  A2 = matrix(0,n_dt,n_patch)
-  A2[1,patch_state==1] = A20
-  
-  # initialise matrix of community and dispersal contributions
-  dA1_comm = matrix(0,n_dt,n_patch)
-  dA1_disp = matrix(0,n_dt,n_patch)
-  dA2_comm = matrix(0,n_dt,n_patch)
-  dA2_disp = matrix(0,n_dt,n_patch)
-  
-  for(t in 1:(n_dt-1)){
-    
-    for(k in 1:n_patch){
-      
-      # GROWTH & COMPETITION
-      
-      # change in A due to growth
-      dA1_growth_comp = A1[t,k]*exp((r1-alpha11*A1[t,k]-alpha12*A2[t,k])*dt) - A1[t,k]
-      dA2_growth_comp = A2[t,k]*exp((r2-alpha22*A2[t,k]-alpha21*A1[t,k])*dt) - A2[t,k]
-      
-      # EMIGRATION
-      
-      # delta for emigration
-      delta1 = ifelse(A1[t,k]<Ae1, 0, 1)
-      delta2 = ifelse(A2[t,k]<Ae2, 0, 1)
-      
-      # change in A due to emigration
-      dA1_emig = delta1*e1*(A1[t,k]-Ae1) * dt
-      dA2_emig = delta2*e2*(A2[t,k]-Ae2) * dt
-      
-      # IMIGRATION
-      
-      # neighbours of patch k
-      k_neigh = which(M_adj[k,]==1)
-      
-      # initialise dA due to immigration
-      dA1_immig = 0
-      dA2_immig = 0
-      
-      # loop through neighbouring patches
-      for(n in k_neigh){
-        
-        # delta of neighbouring patch
-        delta1_neigh = ifelse(A1[t,n]<Ae1, 0, 1)
-        delta2_neigh = ifelse(A2[t,n]<Ae2, 0, 1)
-        
-        # update dA due to immigration
-        dA1_immig = dA1_immig + delta1_neigh*e1*(A1[t,n]-Ae1)/c[n] * dt
-        dA2_immig = dA2_immig + delta2_neigh*e2*(A2[t,n]-Ae2)/c[n] * dt
-      }
-      
-      # new population size
-      A1[t+1,k] = A1[t,k] + dA1_growth_comp - dA1_emig + dA1_immig
-      A2[t+1,k] = A2[t,k] + dA2_growth_comp - dA2_emig + dA2_immig
-      
-      if(is.nan(A1[t+1,k]) || is.nan(A2[t+1,k])){
-        print("Error: A=NaN")
-        break}
-      if(A1[t+1,k]<0){A1[t+1,k]=0}
-      if(A2[t+1,k]<0){A2[t+1,k]=0}
-      
-      # store community and dispersal contributions
-      dA1_comm[t+1,k] = dA1_growth_comp
-      dA1_disp[t+1,k] = - dA1_emig + dA1_immig
-      dA2_comm[t+1,k] = dA2_growth_comp
-      dA2_disp[t+1,k] = - dA2_emig + dA2_immig
-      
-    } # k loop
-    
-  } # t loop
-  
-  # output dataframe
-  df_out = rbind(data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="BB",
-                            population_size=as.vector(A1),
-                            dN_comm=as.vector(dA1_comm),
-                            dN_disp=as.vector(dA1_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="LE",
-                            population_size=as.vector(A2),
-                            dN_comm=as.vector(dA2_comm),
-                            dN_disp=as.vector(dA2_disp)))
-  
-  return(df_out)
-}
-
-# two aphid species & parasitoid
-dt_two_aphid_ptoid = function(r1, r2, alpha11, alpha22, alpha12, alpha21, 
-                              Ae1, Ae2, e1, e2, A10, A20,
-                              beta1, beta2, pmax, f, tau, lambda, Pe, eP,
-                              dt, tmax, patch_state, M_adj){
-  
-  # time vector
-  time = seq(0,tmax,dt)
-  
-  # number of time steps
-  n_dt = length(time)
-  
-  # nummber of patches
-  n_patch = nrow(M_adj)
-  
-  # number of connections of patches
-  c = rowSums(M_adj)
-  
-  # initialise aphid density matrix
-  A1 = matrix(0,n_dt,n_patch)
-  A1[1,patch_state==1] = A10
-  A2 = matrix(0,n_dt,n_patch)
-  A2[1,patch_state==1] = A20
-  
-  # initialise matrix of community and dispersal contributions
-  dA1_comm = matrix(0,n_dt,n_patch)
-  dA1_disp = matrix(0,n_dt,n_patch)
-  dA2_comm = matrix(0,n_dt,n_patch)
-  dA2_disp = matrix(0,n_dt,n_patch)
-  dP_comm = matrix(0,n_dt,n_patch)
-  dP_disp = matrix(0,n_dt,n_patch)
-  
-  # initialise parasitoid density matrix
-  P = matrix(0,n_dt,n_patch)
-  P[1:(lambda-1),patch_state==1] = P0
-  
-  # initialise number of parasitized aphids at each timestep
-  A_parasit = matrix(0,n_dt,n_patch)
-  
-  # max number of parasitized aphids per timestep
-  pmax_dt = pmax / ((lambda-1)/dt)
-  
-  for(t in 1:(n_dt-1)){
-    
-    for(k in 1:n_patch){
-      
-      # GROWTH & COMPETITION - APHID
-      
-      # change in A due to growth
-      dA1_growth_comp = A1[t,k]*exp((r1-alpha11*A1[t,k]-alpha12*A2[t,k])*dt) - A1[t,k]
-      dA2_growth_comp = A2[t,k]*exp((r2-alpha22*A2[t,k]-alpha21*A1[t,k])*dt) - A2[t,k]
-      
-      # PREDATION
-      
-      # potential number of parasitized aphids
-      if(t*dt<tau){
-        # type I response
-        A1_parasit = beta1*A1[t,k]*P[t,k] * dt
-        A2_parasit = beta2*A2[t,k]*P[t,k] * dt
-        
-      } else {
-        # type I response
-        A1_parasit = beta1*A1[t,k]*f*P[t,k] * dt
-        A2_parasit = beta2*A2[t,k]*f*P[t,k] * dt
-      }
-      # check if number of parasitized aphids > total number of aphids
-      if(A1_parasit > A1[t,k]){A1_parasit = A1[t,k]}
-      if(A2_parasit > A2[t,k]){A2_parasit = A2[t,k]}
-      
-      # total number of aphids parasitized
-      n_parasit = A1_parasit + A2_parasit
-      
-      # potential number of parasitized aphids
-      parasit_max = pmax_dt*P[t,k]
-      
-      # check if maximum number of parasitized aphids exceeded
-      if(n_parasit > parasit_max){
-        # total number of parasitized aphids
-        A_parasit[t,k] = parasit_max
-        # change in A due to parasitism
-        dA1_parasit = parasit_max * A1_parasit / (A1_parasit+A2_parasit)
-        dA2_parasit = parasit_max * A2_parasit / (A1_parasit+A2_parasit)
-      } else {
-        # total number of parasitized aphids
-        A_parasit[t,k] = n_parasit
-        # change in A due to parasitism
-        dA1_parasit = A1_parasit
-        dA2_parasit = A2_parasit
-      }
-      
-      # BIRTHS - PARASITOID
-      
-      # dP due to births
-      if(t*dt>=tau){
-        dP_birth = A_parasit[t-(tau-1)/dt,k]
-      } else {
-        dP_birth = 0
-      }
-      
-      # DEATHS - PARASITOID
-      
-      # total number of ptoids across all patches
-      P_total = sum(P[t,])
-      
-      # dP due to deaths
-      if(t*dt==(lambda-1)){
-        dP_death = P[t,k]
-      } else if(t*dt>(tau+lambda-1) & P_total>0) {
-        # total ptoids emerged at t-(lambda-1) = total deaths across all patches
-        P_death_total = sum(A_parasit[t-(lambda-1)/dt,])
-        # number of deaths in current patch (proportional to number of ptoids)
-        dP_death = P[t,k]/P_total * P_death_total
-      } else {
-        dP_death = 0
-      }
-      
-      # EMIGRATION
-      
-      # delta for emigration
-      delta1 = ifelse(A1[t,k]<Ae1, 0, 1)
-      delta2 = ifelse(A2[t,k]<Ae2, 0, 1)
-      deltaP = ifelse(P[t,k]<Pe, 0, 1)
-      
-      # change in A due to emigration
-      dA1_emig = delta1*e1*(A1[t,k]-Ae1) * dt
-      dA2_emig = delta2*e2*(A2[t,k]-Ae2) * dt
-      dP_emig = deltaP*eP*(P[t,k]-Pe) * dt
-      
-      # IMIGRATION
-      
-      # neighbours of patch k
-      k_neigh = which(M_adj[k,]==1)
-      
-      # initialise dA due to immigration
-      dA1_immig = 0
-      dA2_immig = 0
-      dP_immig = 0
-      
-      # loop through neighbouring patches
-      for(n in k_neigh){
-        
-        # delta of neighbouring patch
-        delta1_neigh = ifelse(A1[t,n]<Ae1, 0, 1)
-        delta2_neigh = ifelse(A2[t,n]<Ae2, 0, 1)
-        deltaP_neigh = ifelse(P[t,n]<Pe, 0, 1)
-        
-        # update dA due to immigration
-        dA1_immig = dA1_immig + delta1_neigh*e1*(A1[t,n]-Ae1)/c[n] * dt
-        dA2_immig = dA2_immig + delta2_neigh*e2*(A2[t,n]-Ae2)/c[n] * dt
-        dP_immig = dP_immig + deltaP_neigh*eP*(P[t,n]-Pe)/c[n] * dt
-      }
-      
-      # new population size
-      A1[t+1,k] = A1[t,k] + dA1_growth_comp - dA1_parasit - dA1_emig + dA1_immig
-      A2[t+1,k] = A2[t,k] + dA2_growth_comp - dA2_parasit - dA2_emig + dA2_immig
-      P[t+1,k] = P[t,k] + dP_birth - dP_death - dP_emig + dP_immig
-      
-      if(is.nan(A1[t+1,k]) || is.nan(A2[t+1,k]) || is.nan(P[t+1,k])){
-        print("Error: A=NaN")
-        break}
-      if(A1[t+1,k]<0){A1[t+1,k]=0}
-      if(A2[t+1,k]<0){A2[t+1,k]=0}
-      if(P[t+1,k]<0){P[t+1,k]=0}
-      
-      # store community and dispersal contributions
-      dA1_comm[t+1,k] = dA1_growth_comp - dA1_parasit
-      dA1_disp[t+1,k] = - dA1_emig + dA1_immig
-      dA2_comm[t+1,k] = dA2_growth_comp - dA2_parasit
-      dA2_disp[t+1,k] = - dA2_emig + dA2_immig
-      dP_comm[t+1,k] = dP_birth - dP_death
-      dP_disp[t+1,k] = - dP_emig + dP_immig
-      
-    } # k loop
-    
-  } # t loop
-  
-  # output dataframe
-  df_out = rbind(data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="BB",
-                            population_size=as.vector(A1),
-                            dN_comm=as.vector(dA1_comm),
-                            dN_disp=as.vector(dA1_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="LE",
-                            population_size=as.vector(A2),
-                            dN_comm=as.vector(dA2_comm),
-                            dN_disp=as.vector(dA2_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="DR",
-                            population_size=as.vector(P),
-                            dN_comm=as.vector(dP_comm),
-                            dN_disp=as.vector(dP_disp)))
-  
-  return(df_out)
-}
-
-# three aphid species & parasitoid
-dt_three_aphid_ptoid = function(r1, r2, alpha11, alpha22, alpha12, alpha21, 
-                                Ae1, Ae2, e1, e2, A10, A20,
-                                beta1, beta2, pmax, f, tau, lambda, Pe, eP,
-                                dt, tmax, patch_state, M_adj){
-  
-  # time vector
-  time = seq(0,tmax,dt)
-  
-  # number of time steps
-  n_dt = length(time)
-  
-  # nummber of patches
-  n_patch = nrow(M_adj)
-  
-  # number of connections of patches
-  c = rowSums(M_adj)
-  
-  # aphid 3 parameters
-  A30 = (A10+A20)/2
-  r3 = (r1+r2)/2
-  alpha33 = (alpha11+alpha22)/2
-  alpha3j = (alpha12+alpha21)/2
-  alphai3 = (alpha12+alpha21)/2
-  Ae3 = (Ae1+Ae2)/2
-  e3 = (e1+e2)/2
-  beta3 = (beta1+beta2)/2
-  
-  # initialise aphid density matrix
-  A1 = matrix(0,n_dt,n_patch)
-  A1[1,patch_state==1] = A10
-  A2 = matrix(0,n_dt,n_patch)
-  A2[1,patch_state==1] = A20
-  A3 = matrix(0,n_dt,n_patch)
-  A3[1,patch_state==1] = A30
-  
-  # initialise matrix of community and dispersal contributions
-  dA1_comm = matrix(0,n_dt,n_patch)
-  dA1_disp = matrix(0,n_dt,n_patch)
-  dA2_comm = matrix(0,n_dt,n_patch)
-  dA2_disp = matrix(0,n_dt,n_patch)
-  dA3_comm = matrix(0,n_dt,n_patch)
-  dA3_disp = matrix(0,n_dt,n_patch)
-  dP_comm = matrix(0,n_dt,n_patch)
-  dP_disp = matrix(0,n_dt,n_patch)
-  
-  # initialise parasitoid density matrix
-  P = matrix(0,n_dt,n_patch)
-  P[1:(lambda-1),patch_state==1] = P0
-  
-  # initialise number of parasitized aphids at each timestep
-  A_parasit = matrix(0,n_dt,n_patch)
-  
-  # max number of parasitized aphids per timestep
-  pmax_dt = pmax / ((lambda-1)/dt)
-  
-  for(t in 1:(n_dt-1)){
-    
-    for(k in 1:n_patch){
-      
-      # GROWTH & COMPETITION - APHID
-      
-      # change in A due to growth
-      dA1_growth_comp = A1[t,k]*exp((r1-alpha11*A1[t,k]-alpha12*A2[t,k]-alphai3*A3[t,k])*dt) - A1[t,k]
-      dA2_growth_comp = A2[t,k]*exp((r2-alpha22*A2[t,k]-alpha21*A1[t,k]-alphai3*A3[t,k])*dt) - A2[t,k]
-      dA3_growth_comp = A3[t,k]*exp((r3-alpha33*A3[t,k]-alpha3j*A1[t,k]-alpha3j*A2[t,k])*dt) - A3[t,k]
-      
-      # PREDATION
-      
-      # potential number of parasitized aphids
-      if(t*dt<tau){
-        # type I response
-        A1_parasit = beta1*A1[t,k]*P[t,k] * dt
-        A2_parasit = beta2*A2[t,k]*P[t,k] * dt
-        A3_parasit = beta3*A3[t,k]*P[t,k] * dt
-        
-      } else {
-        # type I response
-        A1_parasit = beta1*A1[t,k]*f*P[t,k] * dt
-        A2_parasit = beta2*A2[t,k]*f*P[t,k] * dt
-        A3_parasit = beta3*A3[t,k]*f*P[t,k] * dt
-      }
-      # check if number of parasitized aphids > total number of aphids
-      if(A1_parasit > A1[t,k]){A1_parasit = A1[t,k]}
-      if(A2_parasit > A2[t,k]){A2_parasit = A2[t,k]}
-      if(A3_parasit > A3[t,k]){A3_parasit = A3[t,k]}
-      
-      # total number of aphids parasitized
-      n_parasit = A1_parasit + A2_parasit + A3_parasit
-      
-      # potential number of parasitized aphids
-      parasit_max = pmax_dt*P[t,k]
-      
-      # check if maximum number of parasitized aphids exceeded
-      if(n_parasit > parasit_max){
-        # total number of parasitized aphids
-        A_parasit[t,k] = parasit_max
-        # change in A due to parasitism
-        dA1_parasit = parasit_max * A1_parasit / (A1_parasit+A2_parasit+A3_parasit)
-        dA2_parasit = parasit_max * A2_parasit / (A1_parasit+A2_parasit+A3_parasit)
-        dA3_parasit = parasit_max * A3_parasit / (A1_parasit+A2_parasit+A3_parasit)
-      } else {
-        # total number of parasitized aphids
-        A_parasit[t,k] = n_parasit
-        # change in A due to parasitism
-        dA1_parasit = A1_parasit
-        dA2_parasit = A2_parasit
-        dA3_parasit = A3_parasit
-      }
-      
-      # BIRTHS - PARASITOID
-      
-      # dP due to births
-      if(t*dt>=tau){
-        dP_birth = A_parasit[t-(tau-1)/dt,k]
-      } else {
-        dP_birth = 0
-      }
-      
-      # DEATHS - PARASITOID
-      
-      # total number of ptoids across all patches
-      P_total = sum(P[t,])
-      
-      # dP due to deaths
-      if(t*dt==(lambda-1)){
-        dP_death = P[t,k]
-      } else if(t*dt>(tau+lambda-1) & P_total>0) {
-        # total ptoids emerged at t-(lambda-1) = total deaths across all patches
-        P_death_total = sum(A_parasit[t-(lambda-1)/dt,])
-        # number of deaths in current patch (proportional to number of ptoids)
-        dP_death = P[t,k]/P_total * P_death_total
-      } else {
-        dP_death = 0
-      }
-      
-      # EMIGRATION
-      
-      # delta for emigration
-      delta1 = ifelse(A1[t,k]<Ae1, 0, 1)
-      delta2 = ifelse(A2[t,k]<Ae2, 0, 1)
-      delta3 = ifelse(A3[t,k]<Ae3, 0, 1)
-      deltaP = ifelse(P[t,k]<Pe, 0, 1)
-      
-      # change in A due to emigration
-      dA1_emig = delta1*e1*(A1[t,k]-Ae1) * dt
-      dA2_emig = delta2*e2*(A2[t,k]-Ae2) * dt
-      dA3_emig = delta3*e3*(A3[t,k]-Ae3) * dt
-      dP_emig = deltaP*eP*(P[t,k]-Pe) * dt
-      
-      # IMIGRATION
-      
-      # neighbours of patch k
-      k_neigh = which(M_adj[k,]==1)
-      
-      # initialise dA due to immigration
-      dA1_immig = 0
-      dA2_immig = 0
-      dA3_immig = 0
-      dP_immig = 0
-      
-      # loop through neighbouring patches
-      for(n in k_neigh){
-        
-        # delta of neighbouring patch
-        delta1_neigh = ifelse(A1[t,n]<Ae1, 0, 1)
-        delta2_neigh = ifelse(A2[t,n]<Ae2, 0, 1)
-        delta3_neigh = ifelse(A3[t,n]<Ae3, 0, 1)
-        deltaP_neigh = ifelse(P[t,n]<Pe, 0, 1)
-        
-        # update dA due to immigration
-        dA1_immig = dA1_immig + delta1_neigh*e1*(A1[t,n]-Ae1)/c[n] * dt
-        dA2_immig = dA2_immig + delta2_neigh*e2*(A2[t,n]-Ae2)/c[n] * dt
-        dA3_immig = dA3_immig + delta3_neigh*e3*(A3[t,n]-Ae3)/c[n] * dt
-        dP_immig = dP_immig + deltaP_neigh*eP*(P[t,n]-Pe)/c[n] * dt
-      }
-      
-      # new population size
-      A1[t+1,k] = A1[t,k] + dA1_growth_comp - dA1_parasit - dA1_emig + dA1_immig
-      A2[t+1,k] = A2[t,k] + dA2_growth_comp - dA2_parasit - dA2_emig + dA2_immig
-      A3[t+1,k] = A3[t,k] + dA3_growth_comp - dA3_parasit - dA3_emig + dA3_immig
-      P[t+1,k] = P[t,k] + dP_birth - dP_death - dP_emig + dP_immig
-      
-      if(is.nan(A1[t+1,k]) || is.nan(A2[t+1,k]) || is.nan(A3[t+1,k]) || is.nan(P[t+1,k])){
-        print("Error: A=NaN")
-        break}
-      if(A1[t+1,k]<0){A1[t+1,k]=0}
-      if(A2[t+1,k]<0){A2[t+1,k]=0}
-      if(A3[t+1,k]<0){A3[t+1,k]=0}
-      if(P[t+1,k]<0){P[t+1,k]=0}
-      
-      # store community and dispersal contributions
-      dA1_comm[t+1,k] = dA1_growth_comp - dA1_parasit
-      dA1_disp[t+1,k] = - dA1_emig + dA1_immig
-      dA2_comm[t+1,k] = dA2_growth_comp - dA2_parasit
-      dA2_disp[t+1,k] = - dA2_emig + dA2_immig
-      dA3_comm[t+1,k] = dA3_growth_comp - dA3_parasit
-      dA3_disp[t+1,k] = - dA3_emig + dA3_immig
-      dP_comm[t+1,k] = dP_birth - dP_death
-      dP_disp[t+1,k] = - dP_emig + dP_immig
-      
-    } # k loop
-    
-  } # t loop
-  
-  # output dataframe
-  df_out = rbind(data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="BB",
-                            population_size=as.vector(A1),
-                            dN_comm=as.vector(dA1_comm),
-                            dN_disp=as.vector(dA1_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="LE",
-                            population_size=as.vector(A2),
-                            dN_comm=as.vector(dA2_comm),
-                            dN_disp=as.vector(dA2_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="A3",
-                            population_size=as.vector(A3),
-                            dN_comm=as.vector(dA3_comm),
-                            dN_disp=as.vector(dA3_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="DR",
-                            population_size=as.vector(P),
-                            dN_comm=as.vector(dP_comm),
-                            dN_disp=as.vector(dP_disp)))
-  
-  return(df_out)
-}
-
-# two aphid species, parasitoid & hyperparasitoid
-dt_two_aphid_ptoid_hyper = function(r1, r2, alpha11, alpha22, alpha12, alpha21,
-                                    Ae1, Ae2, e1, e2, A10, A20,
-                                    beta1, beta2, pmax, f, tau, lambda, Pe, eP,
-                                    dt, tmax, patch_state, M_adj){
-  
-  # time vector
-  time = seq(0,tmax,dt)
-  
-  # number of time steps
-  n_dt = length(time)
-  
-  # nummber of patches
-  n_patch = nrow(M_adj)
-  
-  # number of connections of patches
-  c = rowSums(M_adj)
-  
-  # initialise aphid density matrix
-  A1 = matrix(0,n_dt,n_patch)
-  A1[1,patch_state==1] = A10
-  A2 = matrix(0,n_dt,n_patch)
-  A2[1,patch_state==1] = A20
-  
-  # initialise parasitoid density matrix
-  P = matrix(0,n_dt,n_patch)
-  P[1:(lambda-1),patch_state==1] = P0
-  
-  # initialise hyper-parasitoid density matrix
-  H = matrix(0,n_dt,n_patch)
-  H[1:(lambda-1),patch_state==1] = P0
-  
-  # initialise matrix of community and dispersal contributions
-  dA1_comm = matrix(0,n_dt,n_patch)
-  dA1_disp = matrix(0,n_dt,n_patch)
-  dA2_comm = matrix(0,n_dt,n_patch)
-  dA2_disp = matrix(0,n_dt,n_patch)
-  dP_comm = matrix(0,n_dt,n_patch)
-  dP_disp = matrix(0,n_dt,n_patch)
-  dH_comm = matrix(0,n_dt,n_patch)
-  dH_disp = matrix(0,n_dt,n_patch)
-  
-  # initialise number of parasitized aphids at each timestep
-  A_parasit = matrix(0,n_dt,n_patch)
-  
-  # initialise number of parasitized parasitoids at each timestep
-  P_parasit = matrix(0,n_dt,n_patch)
-  
-  # max number of parasitized aphids per timestep
-  pmax_dt = pmax / ((lambda-1)/dt)
-  
-  for(t in 1:(n_dt-1)){
-    
-    for(k in 1:n_patch){
-      
-      # GROWTH & COMPETITION - APHID
-      
-      # change in A due to growth
-      dA1_growth_comp = A1[t,k]*exp((r1-alpha11*A1[t,k]-alpha12*A2[t,k])*dt) - A1[t,k]
-      dA2_growth_comp = A2[t,k]*exp((r2-alpha22*A2[t,k]-alpha21*A1[t,k])*dt) - A2[t,k]
-      
-      # PREDATION - ON APHID
-      
-      # potential number of parasitized aphids
-      if(t*dt<tau){
-        # type I response
-        A1_parasit = beta1*A1[t,k]*P[t,k] * dt
-        A2_parasit = beta2*A2[t,k]*P[t,k] * dt
-        
-      } else {
-        # type I response
-        A1_parasit = beta1*A1[t,k]*f*P[t,k] * dt
-        A2_parasit = beta2*A2[t,k]*f*P[t,k] * dt
-      }
-      # check if number of parasitized aphids > total number of aphids
-      if(A1_parasit > A1[t,k]){A1_parasit = A1[t,k]}
-      if(A2_parasit > A2[t,k]){A2_parasit = A2[t,k]}
-      
-      # total number of aphids parasitized
-      n_parasit = A1_parasit + A2_parasit
-      
-      # potential number of parasitized aphids
-      parasit_max = pmax_dt*P[t,k]
-      
-      # check if maximum number of parasitized aphids exceeded
-      if(n_parasit > parasit_max){
-        # total number of parasitized aphids
-        A_parasit[t,k] = parasit_max
-        # change in A due to parasitism
-        dA1_parasit = parasit_max * A1_parasit / (A1_parasit+A2_parasit)
-        dA2_parasit = parasit_max * A2_parasit / (A1_parasit+A2_parasit)
-      } else {
-        # total number of parasitized aphids
-        A_parasit[t,k] = n_parasit
-        # change in A due to parasitism
-        dA1_parasit = A1_parasit
-        dA2_parasit = A2_parasit
-      }
-      
-      # PREDATION - ON PARASITOID
-      
-      # potential number of parasitized parasitoids
-      if(t*dt<tau){
-        # type I response
-        dP_parasit = (beta1+beta2)/2*A_parasit[t,k]*H[t,k] * dt
-        
-      } else {
-        # type I response
-        dP_parasit = (beta1+beta2)/2*A_parasit[t,k]*f*H[t,k] * dt
-      }
-      # check if number of parasitized parasitoids > total number of mummies
-      if(dP_parasit > A_parasit[t,k]){dP_parasit = A_parasit[t,k]}
-      
-      # potential number of parasitized parasitoids
-      parasit_max = pmax_dt*H[t,k]
-      
-      # check if maximum number of parasitized parasitoids exceeded
-      if(dP_parasit > parasit_max){dP_parasit = parasit_max}
-      
-      # update number of parasitized parasitoids
-      P_parasit[t,k] = dP_parasit
-      
-      # BIRTHS - PARASITOID
-      
-      # dP due to births
-      if(t*dt>=tau){
-        dP_birth = A_parasit[t-(tau-1)/dt,k]
-      } else {
-        dP_birth = 0
-      }
-      
-      # BIRTHS - HYPER PARASITOID
-      
-      # dH due to births
-      if(t*dt>=tau){
-        dH_birth = P_parasit[t-(tau-1)/dt,k]
-      } else {
-        dH_birth = 0
-      }
-      
-      # DEATHS - PARASITOID
-      
-      # total number of ptoids across all patches
-      P_total = sum(P[t,])
-      
-      # dP due to deaths
-      if(t*dt==(lambda-1)){
-        dP_death = P[t,k]
-      } else if(t*dt>(tau+lambda-1) & P_total>0) {
-        # total ptoids emerged at t-(lambda-1) = total deaths across all patches
-        P_death_total = sum(A_parasit[t-(lambda-1)/dt,])
-        # number of deaths in current patch (proportional to number of ptoids)
-        dP_death = P[t,k]/P_total * P_death_total
-      } else {
-        dP_death = 0
-      }
-      
-      # DEATHS - HYPER PARASITOID
-      
-      # total number of ptoids across all patches
-      H_total = sum(H[t,])
-      
-      # dP due to deaths
-      if(t*dt==(lambda-1)){
-        dH_death = H[t,k]
-      } else if(t*dt>(tau+lambda-1) & H_total>0) {
-        # total ptoids emerged at t-(lambda-1) = total deaths across all patches
-        H_death_total = sum(P_parasit[t-(lambda-1)/dt,])
-        # number of deaths in current patch (proportional to number of ptoids)
-        dH_death = H[t,k]/H_total * H_death_total
-      } else {
-        dH_death = 0
-      }
-      
-      # EMIGRATION
-      
-      # delta for emigration
-      delta1 = ifelse(A1[t,k]<Ae1, 0, 1)
-      delta2 = ifelse(A2[t,k]<Ae2, 0, 1)
-      deltaP = ifelse(P[t,k]<Pe, 0, 1)
-      deltaH = ifelse(H[t,k]<Pe, 0, 1)
-      
-      # change in A due to emigration
-      dA1_emig = delta1*e1*(A1[t,k]-Ae1) * dt
-      dA2_emig = delta2*e2*(A2[t,k]-Ae2) * dt
-      dP_emig = deltaP*eP*(P[t,k]-Pe) * dt
-      dH_emig = deltaP*eP*(H[t,k]-Pe) * dt
-      
-      # IMIGRATION
-      
-      # neighbours of patch k
-      k_neigh = which(M_adj[k,]==1)
-      
-      # initialise dA due to immigration
-      dA1_immig = 0
-      dA2_immig = 0
-      dP_immig = 0
-      dH_immig = 0
-      
-      # loop through neighbouring patches
-      for(n in k_neigh){
-        
-        # delta of neighbouring patch
-        delta1_neigh = ifelse(A1[t,n]<Ae1, 0, 1)
-        delta2_neigh = ifelse(A2[t,n]<Ae2, 0, 1)
-        deltaP_neigh = ifelse(P[t,n]<Pe, 0, 1)
-        deltaH_neigh = ifelse(H[t,n]<Pe, 0, 1)
-        
-        # update dA due to immigration
-        dA1_immig = dA1_immig + delta1_neigh*e1*(A1[t,n]-Ae1)/c[n] * dt
-        dA2_immig = dA2_immig + delta2_neigh*e2*(A2[t,n]-Ae2)/c[n] * dt
-        dP_immig = dP_immig + deltaP_neigh*eP*(P[t,n]-Pe)/c[n] * dt
-        dH_immig = dH_immig + deltaH_neigh*eP*(H[t,n]-Pe)/c[n] * dt
-      }
-      
-      # new population size
-      A1[t+1,k] = A1[t,k] + dA1_growth_comp - dA1_parasit - dA1_emig + dA1_immig
-      A2[t+1,k] = A2[t,k] + dA2_growth_comp - dA2_parasit - dA2_emig + dA2_immig
-      P[t+1,k] = P[t,k] + dP_birth - dP_death - dP_parasit - dP_emig + dP_immig
-      H[t+1,k] = H[t,k] + dH_birth - dH_death - dH_emig + dH_immig
-      
-      if(is.nan(A1[t+1,k]) || is.nan(A2[t+1,k]) || is.nan(P[t+1,k]) || is.nan(H[t+1,k])){
-        print("Error: A=NaN")
-        break}
-      if(A1[t+1,k]<0){A1[t+1,k]=0}
-      if(A2[t+1,k]<0){A2[t+1,k]=0}
-      if(P[t+1,k]<0){P[t+1,k]=0}
-      if(H[t+1,k]<0){H[t+1,k]=0}
-      
-      # store community and dispersal contributions
-      dA1_comm[t+1,k] = dA1_growth_comp - dA1_parasit
-      dA1_disp[t+1,k] = - dA1_emig + dA1_immig
-      dA2_comm[t+1,k] = dA2_growth_comp - dA2_parasit
-      dA2_disp[t+1,k] = - dA2_emig + dA2_immig
-      dP_comm[t+1,k] = dP_birth - dP_death - dP_parasit
-      dP_disp[t+1,k] = - dP_emig + dP_immig
-      dH_comm[t+1,k] = dH_birth - dH_death
-      dH_disp[t+1,k] = - dH_emig + dH_immig
-      
-    } # k loop
-    
-  } # t loop
-  
-  # output dataframe
-  df_out = rbind(data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="BB",
-                            population_size=as.vector(A1),
-                            dN_comm=as.vector(dA1_comm),
-                            dN_disp=as.vector(dA1_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="LE",
-                            population_size=as.vector(A2),
-                            dN_comm=as.vector(dA2_comm),
-                            dN_disp=as.vector(dA2_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="DR",
-                            population_size=as.vector(P),
-                            dN_comm=as.vector(dP_comm),
-                            dN_disp=as.vector(dP_disp)),
-                 data.frame(expand.grid(t=time, patch=1:n_patch),
-                            aphid="HP",
-                            population_size=as.vector(H),
-                            dN_comm=as.vector(dH_comm),
-                            dN_disp=as.vector(dH_disp)))
-  
-  return(df_out)
-}
-
-
-# replica functions 
-# (run multiple replicas sampling parameters from confidence intervals)
-
-dt_one_aphid_rep = function(r_CI, alpha_CI, Ae, e_CI,
-                            A0, dt, tmax, patch_state, M_adj, n_rep){
-  
-  # sample parameter values between confidence intervals
-  set.seed(1)
-  r_vals = runif(n_rep, min=r_CI[1], max=r_CI[2])
-  alpha_vals = runif(n_rep, min=alpha_CI[1], max=alpha_CI[2])
-  e_vals = runif(n_rep, min=e_CI[1], max=e_CI[2])
-
-  # initialise dataframe for storing results
-  df_out = data.frame(replica=integer(),
-                      t=double(),
-                      patch=integer(),
-                      population_size=double())
-  
-  # loop through replicas
-  for(i in 1:n_rep){
-    
-    # simulate dynamics
-    df_dt = dt_one_aphid(r=r_vals[i], alpha=alpha_vals[i], Ae, e=e_vals[i],
-                         A0, dt, tmax, patch_state, M_adj) %>%
-      mutate(replica=i)
-    
-    # combine results
-    df_out = rbind(df_out, df_dt)
+  if(n_ptoid>0){
+    df_out = rbind(df_out,
+                   data.frame(expand.grid(t=time, patch=1:n_patch, species=paste0("P",1:n_ptoid)),
+                              population_size=as.vector(P),
+                              dN_comm=NA,
+                              dN_disp=NA))
+  }
+  if(n_hyper>0){
+    df_out = rbind(df_out,
+                   data.frame(expand.grid(t=time, patch=1:n_patch),
+                              species="H",
+                              population_size=as.vector(H),
+                              dN_comm=NA,
+                              dN_disp=NA))
   }
   
   return(df_out)
 }
 
-dt_two_aphid_rep = function(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                            Ae1, Ae2, e1_CI, e2_CI, A10, A20, 
-                            dt, tmax, patch_state, M_adj, n_rep){
+# run replicate simulations (sampling from confidence intervals)
+f_reps = function(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                  M_land, patch_state, dt, tmax, n_rep){
   
-  # sample parameter values between confidence intervals
+  # aphid1 - BB - sample species parameter values between confidence intervals
   set.seed(1)
-  r1_vals = runif(n_rep, min=r1_CI[1], max=r1_CI[2])
-  alpha11_vals = runif(n_rep, min=alpha11_CI[1], max=alpha11_CI[2])
-  e1_vals = runif(n_rep, min=e1_CI[1], max=e1_CI[2])
-  alpha12_vals = runif(n_rep, min=alpha12_CI[1], max=alpha12_CI[2])
-
+  r1_vals      = runif(n_rep, min=species_parameters[1,3], max=species_parameters[1,4]) # growth rate
+  alpha11_vals = runif(n_rep, min=species_parameters[3,3], max=species_parameters[3,4]) # intraspecific competition
+  alpha12_vals = runif(n_rep, min=species_parameters[5,3], max=species_parameters[5,4]) # interspecific competition
+  e1_vals      = runif(n_rep, min=species_parameters[7,3], max=species_parameters[7,4]) # emigration rate
+  Ae1 = as.numeric(species_parameters[species_parameters$parameter=="Ae1",2]) # minimum density for emigration
+  
+  # aphid2 - LE - sample species parameter values between confidence intervals
   set.seed(1)
-  r2_vals = runif(n_rep, min=r2_CI[1], max=r2_CI[2])
-  alpha22_vals = runif(n_rep, min=alpha22_CI[1], max=alpha22_CI[2])
-  e2_vals = runif(n_rep, min=e2_CI[1], max=e2_CI[2])
-  alpha21_vals = runif(n_rep, min=alpha21_CI[1], max=alpha21_CI[2])
-
-  # initialise dataframe for storing results
-  df_out = data.frame(replica=integer(),
-                      t=double(),
-                      patch=integer(),
-                      aphid=character(),
-                      population_size=double())
+  r2_vals      = runif(n_rep, min=species_parameters[2,3], max=species_parameters[2,4])
+  alpha22_vals = runif(n_rep, min=species_parameters[4,3], max=species_parameters[4,4])
+  alpha21_vals = runif(n_rep, min=species_parameters[6,3], max=species_parameters[6,4])
+  e2_vals      = runif(n_rep, min=species_parameters[8,3], max=species_parameters[8,4])
+  Ae2 = as.numeric(species_parameters[species_parameters$parameter=="Ae2",2])
   
-  # loop through replicas
-  for(i in 1:n_rep){
-    
-    # simulate dynamics
-    df_dt = dt_two_aphid(r1=r1_vals[i], r2=r2_vals[i], 
-                         alpha11=alpha11_vals[i], alpha22=alpha22_vals[i], 
-                         alpha12=alpha12_vals[i], alpha21=alpha21_vals[i], 
-                         Ae1, Ae2, e1=e1_vals[i], e2=e2_vals[i],
-                         A10, A20, dt, tmax, patch_state, M_adj) %>%
-      mutate(replica=i)
-    
-    # combine results
-    df_out = rbind(df_out, df_dt)
-  }
+  # aphid3 - MP - estimate
+  r3_vals      = r2_vals # the same as LE
+  alpha33_vals = alpha22_vals # the same as LE
+  alpha3x_vals = (alpha12_vals + alpha21_vals) / 2 # average of alpha12 & alpha21
+  e3_vals      = (e1_vals + e2_vals) / 2 # average of BB & LE
+  Ae3          = (Ae1 + Ae2) / 2 # average of BB & LE
   
-  return(df_out)
-}
-
-dt_two_aphid_ptoid_rep = function(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI,
-                                  Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                  beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                  dt, tmax, patch_state, M_adj, n_rep){
+  # aphid - patasitoid
+  beta11_vals  = runif(n_rep, min=species_parameters[11,3], max=species_parameters[11,4]) # parasitisation rate on BB
+  beta21_vals   = runif(n_rep, min=species_parameters[12,3], max=species_parameters[12,4]) # parasitisation rate on LE
+  beta31_vals   = 2/3*beta21_vals # parasitisation rate on MP lower than LE (ratio between beta21 & beta11 = 2/3)
+  beta12_vals  =  1/3*beta21_vals # parasitisation rate on BB low
+  beta22_vals   = 1/3*beta21_vals # parasitisation rate on LE low
+  beta32_vals   = beta11_vals # parasitisation rate on MP high (the same as DR on BB)
   
-  # sample parameter values between confidence intervals
-  set.seed(1)
-  r1_vals = runif(n_rep, min=r1_CI[1], max=r1_CI[2])
-  alpha11_vals = runif(n_rep, min=alpha11_CI[1], max=alpha11_CI[2])
-  e1_vals = runif(n_rep, min=e1_CI[1], max=e1_CI[2])
-  alpha12_vals = runif(n_rep, min=alpha12_CI[1], max=alpha12_CI[2])
-  beta1_vals = runif(n_rep, min=beta1_CI[1], max=beta1_CI[2])
+  # parasitoid & hyperparasitoid - DR - parameters (AC & hyper assumed the same as DR)
+  pmax = as.numeric(species_parameters[species_parameters$parameter=="pmax",2]) # maximum parasitization
+  tau = round(as.numeric(species_parameters[species_parameters$parameter=="tau",2]),0) # time to emergence
+  f = as.numeric(species_parameters[species_parameters$parameter=="f",2]) # fraction of females
+  lambda = round(as.numeric(species_parameters[species_parameters$parameter=="lambda",2]),0) # lifespan 
+  eP = as.numeric(species_parameters[species_parameters$parameter=="eP",2]) # emigration rate
+  Pe = as.numeric(species_parameters[species_parameters$parameter=="Pe",2]) # minimum density for emigration
   
-  set.seed(1)
-  r2_vals = runif(n_rep, min=r2_CI[1], max=r2_CI[2])
-  alpha22_vals = runif(n_rep, min=alpha22_CI[1], max=alpha22_CI[2])
-  e2_vals = runif(n_rep, min=e2_CI[1], max=e2_CI[2])
-  alpha21_vals = runif(n_rep, min=alpha21_CI[1], max=alpha21_CI[2])
-  beta2_vals = runif(n_rep, min=beta2_CI[1], max=beta2_CI[2])
+  # parasitoid - hyperparasitoid
+  gamma1 = beta11_vals # parasitisation rate on DR (the same as DR on BB)
+  gamma2 = beta21_vals # parasitisation rate on DR (the same as DR on LE)
   
   # initialise dataframe for storing results
   df_out = data.frame(replica=integer(),
@@ -1050,108 +477,62 @@ dt_two_aphid_ptoid_rep = function(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_
   # loop through replicas
   for(i in 1:n_rep){
     
-    # simulate dynamics
-    df_dt = dt_two_aphid_ptoid(r1=r1_vals[i], r2=r2_vals[i], 
-                               alpha11=alpha11_vals[i], alpha22=alpha22_vals[i], 
-                               alpha12=alpha12_vals[i], alpha21=alpha21_vals[i], 
-                               Ae1, Ae2, e1=e1_vals[i], e2=e2_vals[i], A10, A20, 
-                               beta1=beta1_vals[i], beta2=beta2_vals[i], 
-                               pmax, f, tau, lambda, Pe, eP,
-                               dt, tmax, patch_state, M_adj) %>%
-      mutate(replica=i)
-    
-    # combine results
-    df_out = rbind(df_out, df_dt)
-  }
-  
-  return(df_out)
-}
-
-dt_three_aphid_ptoid_rep = function(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI,
-                                    Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                    beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                    dt, tmax, patch_state, M_adj, n_rep){
-  
-  # sample parameter values between confidence intervals
-  set.seed(1)
-  r1_vals = runif(n_rep, min=r1_CI[1], max=r1_CI[2])
-  alpha11_vals = runif(n_rep, min=alpha11_CI[1], max=alpha11_CI[2])
-  e1_vals = runif(n_rep, min=e1_CI[1], max=e1_CI[2])
-  alpha12_vals = runif(n_rep, min=alpha12_CI[1], max=alpha12_CI[2])
-  beta1_vals = runif(n_rep, min=beta1_CI[1], max=beta1_CI[2])
-  
-  set.seed(1)
-  r2_vals = runif(n_rep, min=r2_CI[1], max=r2_CI[2])
-  alpha22_vals = runif(n_rep, min=alpha22_CI[1], max=alpha22_CI[2])
-  e2_vals = runif(n_rep, min=e2_CI[1], max=e2_CI[2])
-  alpha21_vals = runif(n_rep, min=alpha21_CI[1], max=alpha21_CI[2])
-  beta2_vals = runif(n_rep, min=beta2_CI[1], max=beta2_CI[2])
-  
-  # initialise dataframe for storing results
-  df_out = data.frame(replica=integer(),
-                      t=double(),
-                      patch=integer(),
-                      aphid=character(),
-                      population_size=double())
-  
-  # loop through replicas
-  for(i in 1:n_rep){
-    
-    # simulate dynamics
-    df_dt = dt_three_aphid_ptoid(r1=r1_vals[i], r2=r2_vals[i], 
-                                 alpha11=alpha11_vals[i], alpha22=alpha22_vals[i], 
-                                 alpha12=alpha12_vals[i], alpha21=alpha21_vals[i], 
-                                 Ae1, Ae2, e1=e1_vals[i], e2=e2_vals[i], A10, A20, 
-                                 beta1=beta1_vals[i], beta2=beta2_vals[i], 
-                                 pmax, f, tau, lambda, Pe, eP,
-                                 dt, tmax, patch_state, M_adj) %>%
-      mutate(replica=i)
-    
-    # combine results
-    df_out = rbind(df_out, df_dt)
-  }
-  
-  return(df_out)
-}
-
-dt_two_aphid_ptoid_hyper_rep = function(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI,
-                                        Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                        beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                        dt, tmax, patch_state, M_adj, n_rep){
-  
-  # sample parameter values between confidence intervals
-  set.seed(1)
-  r1_vals = runif(n_rep, min=r1_CI[1], max=r1_CI[2])
-  alpha11_vals = runif(n_rep, min=alpha11_CI[1], max=alpha11_CI[2])
-  e1_vals = runif(n_rep, min=e1_CI[1], max=e1_CI[2])
-  alpha12_vals = runif(n_rep, min=alpha12_CI[1], max=alpha12_CI[2])
-  beta1_vals = runif(n_rep, min=beta1_CI[1], max=beta1_CI[2])
-  
-  set.seed(1)
-  r2_vals = runif(n_rep, min=r2_CI[1], max=r2_CI[2])
-  alpha22_vals = runif(n_rep, min=alpha22_CI[1], max=alpha22_CI[2])
-  e2_vals = runif(n_rep, min=e2_CI[1], max=e2_CI[2])
-  alpha21_vals = runif(n_rep, min=alpha21_CI[1], max=alpha21_CI[2])
-  beta2_vals = runif(n_rep, min=beta2_CI[1], max=beta2_CI[2])
-  
-  # initialise dataframe for storing results
-  df_out = data.frame(replica=integer(),
-                      t=double(),
-                      patch=integer(),
-                      aphid=character(),
-                      population_size=double())
-  
-  # loop through replicas
-  for(i in 1:n_rep){
+    # species parameters for current replica
+    if(n_aphid==1){
+      r = r1_vals[i]
+      alpha = matrix(alpha11_vals[i],
+                     1,1, byrow=TRUE)
+      e = e1_vals[i]
+      Ae = Ae1
+      if(n_ptoid==0){
+        beta = NULL
+      }else{
+        beta = matrix(c(beta11_vals[i], beta12_vals[i]),
+                      1,2)[,1:n_ptoid, drop=FALSE]
+      }
+    }
+    if(n_aphid==2){
+      r = c(r1_vals[i], r2_vals[i])
+      alpha = matrix(c(alpha11_vals[i], alpha12_vals[i],
+                       alpha21_vals[i], alpha22_vals[i]),
+                     2,2, byrow=TRUE)
+      e = c(e1_vals[i], e2_vals[i])
+      Ae = c(Ae1, Ae2)
+      if(n_ptoid==0){
+        beta = NULL
+      }else{
+        beta = matrix(c(beta11_vals[i], beta12_vals[i],
+                        beta21_vals[i], beta22_vals[i]),
+                      2,2, byrow=TRUE)[,1:n_ptoid, drop=FALSE]
+      }
+    }
+    if(n_aphid==3){
+      r = c(r1_vals[i], r2_vals[i], r3_vals[i])
+      alpha = matrix(c(alpha11_vals[i], alpha12_vals[i], alpha3x_vals[i],
+                       alpha21_vals[i], alpha22_vals[i], alpha3x_vals[i],
+                       alpha3x_vals[i], alpha3x_vals[i], alpha33_vals[i]),
+                     3,3, byrow=TRUE)
+      e = c(e1_vals[i], e2_vals[i], e3_vals[i])
+      Ae = c(Ae1, Ae2, Ae3)
+      if(n_ptoid==0){
+        beta = NULL
+      }else{
+        beta = matrix(c(beta11_vals[i], beta12_vals[i],
+                        beta21_vals[i], beta22_vals[i],
+                        beta31_vals[i], beta32_vals[i]),
+                      3,2, byrow=TRUE)[,1:n_ptoid, drop=FALSE]
+      }
+    }
+    if(n_hyper==0){
+      gamma = NULL
+    }else{
+      gamma = c(gamma1,gamma2)[1:n_ptoid]
+    }
     
     # simulate dynamics
-    df_dt = dt_two_aphid_ptoid_hyper(r1=r1_vals[i], r2=r2_vals[i],
-                                     alpha11=alpha11_vals[i], alpha22=alpha22_vals[i], 
-                                     alpha12=alpha12_vals[i], alpha21=alpha21_vals[i], 
-                                     Ae1, Ae2, e1=e1_vals[i], e2=e2_vals[i], A10, A20, 
-                                     beta1=beta1_vals[i], beta2=beta2_vals[i], 
-                                     pmax, f, tau, lambda, Pe, eP,
-                                     dt, tmax, patch_state, M_adj) %>%
+    df_dt = f_dynamics(r, alpha, Ae, e, beta, gamma, pmax, f, tau, lambda, Pe, eP,
+                       N0, n_aphid, n_ptoid, n_hyper,
+                       M_land, patch_state, dt, tmax) %>%
       mutate(replica=i)
     
     # combine results
@@ -1162,211 +543,340 @@ dt_two_aphid_ptoid_hyper_rep = function(r1_CI, r2_CI, alpha11_CI, alpha22_CI, al
 }
 
 # plotting functions
-# (plot recovery credit and anova predictions)
-
-plot_model_prediction_partfig <- function(data_test, fig_col){
+plot_model_prediction_partfig4 = function(data_test, data_test_exp, df_comms){
   
   # linear anova, recovery log(x+1) transformed (to deal with 0-values)
-  anova_m2 <- lm(log1p(recovery) ~ landscape_patches*landscape_type*community, data=data_test)
+  anova_m2 = lm(log1p(recovery) ~ landscape_patches*landscape_type*community, data=data_test)
+  anova_m2_exp = lm(log1p(recovery) ~ landscape_patches*landscape_type*community, data=data_test_exp)
   
-  # effect of number of patches
-  pred_landscape_patches <- avg_predictions(anova_m2, variables="landscape_patches", by="landscape_patches") %>%
-    mutate(sig=ifelse(anova(anova_m2)[1,5]<0.05,"sig","NS"))
-  pred_landscape_patches$sig <- factor(pred_landscape_patches$sig, levels=c("NS", "sig"))
-  p1 <- ggplot(data=NULL, aes(x=landscape_patches)) +
-    geom_point(data=data_test, aes(y=log1p(recovery), col=recovery), 
-               position=position_jitter(width=0.1, height=0), alpha=1) +
-    geom_errorbar(data=pred_landscape_patches, aes(ymin=conf.low, ymax=conf.high), width=0) +
-    geom_point(data=pred_landscape_patches, aes(y=estimate, shape=sig), size=4, fill="white") +
-    coord_cartesian(ylim=c(log1p(min(data_test$recovery)),log1p(max(data_test$recovery)))) +
-    scale_color_gradient(low="lightgrey", high=fig_col) +
-    scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
-    labs(subtitle="number of communities", y="ln(recovery credit +1)", col="recovery\ncredit") +
-    theme(panel.background=element_rect(fill="white", colour="grey"),
-          panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-          axis.text.x=element_text(size=10), axis.text.y=element_text(size=8), 
-          axis.title=element_text(size=8), axis.title.x=element_blank(),
-          legend.text=element_text(size=8), legend.title=element_text(size=8),
-          plot.subtitle=element_text(size=10))
+  # predictions
+  preds = rbind(avg_predictions(anova_m2, variables="landscape_patches", by="landscape_patches") %>%
+                  mutate(sig=ifelse(anova(anova_m2)[1,5]<0.05,"sig","NS"),
+                         effect="number of communities") %>%
+                  rename(treatment="landscape_patches"),
+                avg_predictions(anova_m2, variables="landscape_type", by="landscape_type") %>%
+                  mutate(sig=ifelse(anova(anova_m2)[2,5]<0.05,"sig","NS"),
+                         effect="location of communities") %>%
+                  rename(treatment="landscape_type"),
+                avg_predictions(anova_m2, variables="community", by="community") %>%
+                  mutate(sig=ifelse(anova(anova_m2)[3,5]<0.05,"sig","NS"),
+                         effect="community food web") %>%
+                  rename(treatment="community")) %>%
+    left_join(., df_comms, by=c("treatment"="community"))
+  preds$sig = factor(preds$sig, levels=c("NS", "sig"))
+  preds$effect = factor(preds$effect, 
+                        levels=c("number of communities","location of communities","community food web"))
+  preds[is.na(preds)] = 0
   
-  # effect of landscape type
-  pred_landscape_type <- avg_predictions(anova_m2, variables="landscape_type", by="landscape_type") %>%
-    mutate(sig=ifelse(anova(anova_m2)[2,5]<0.05,"sig","NS"))
-  pred_landscape_type$sig <- factor(pred_landscape_type$sig, levels=c("NS", "sig"))
-  p2 <- ggplot(data=NULL, aes(x=landscape_type)) +
-    geom_point(data=data_test, aes(y=log1p(recovery), col=recovery), 
-               position=position_jitter(width=0.1, height=0), alpha=1) +
-    geom_errorbar(data=pred_landscape_type, aes(ymin=conf.low, ymax=conf.high), width=0) +
-    geom_point(data=pred_landscape_type, aes(y=estimate, shape=sig), size=4, fill="white") +
-    coord_cartesian(ylim=c(log1p(min(data_test$recovery)),log1p(max(data_test$recovery)))) +
-    scale_color_gradient(low="lightgrey", high=fig_col) +
-    scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
-    labs(subtitle="location of communities", y="ln(recovery credit +1)", col="recovery\ncredit") +
-    theme(panel.background=element_rect(fill="white", colour="grey"),
-          panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-          axis.text.x=element_text(size=10), axis.text.y=element_text(size=8), 
-          axis.title=element_blank(),
-          legend.text=element_text(size=8), legend.title=element_text(size=8),
-          plot.subtitle=element_text(size=10))
+  preds_exp = rbind(avg_predictions(anova_m2_exp, variables="landscape_patches", by="landscape_patches") %>%
+                      mutate(sig=ifelse(anova(anova_m2_exp)[1,5]<0.05,"sig","NS"),
+                             effect="number of communities") %>%
+                      rename(treatment="landscape_patches"),
+                    avg_predictions(anova_m2_exp, variables="landscape_type", by="landscape_type") %>%
+                      mutate(sig=ifelse(anova(anova_m2_exp)[2,5]<0.05,"sig","NS"),
+                             effect="location of communities") %>%
+                      rename(treatment="landscape_type"),
+                    avg_predictions(anova_m2_exp, variables="community", by="community") %>%
+                      mutate(sig=ifelse(anova(anova_m2_exp)[3,5]<0.05,"sig","NS"),
+                             effect="community food web") %>%
+                      rename(treatment="community")) %>%
+    left_join(., df_comms, by=c("treatment"="community"))
+  preds_exp$sig = factor(preds_exp$sig, levels=c("NS", "sig"))
+  preds_exp$effect = factor(preds_exp$effect, 
+                            levels=c("number of communities","location of communities","community food web"))
+  preds_exp[is.na(preds_exp)] = 0
   
-  # effect of community type
-  pred_community <- avg_predictions(anova_m2, variables="community", by="community") %>%
-    mutate(sig=ifelse(anova(anova_m2)[3,5]<0.05,"sig","NS"))
-  pred_community$sig <- factor(pred_community$sig, levels=c("NS", "sig"))
-  p3 <- ggplot(data=NULL, aes(x=community)) +
-    geom_point(data=data_test, aes(y=log1p(recovery), col=recovery), 
-               position=position_jitter(width=0.1, height=0), alpha=1) +
-    geom_errorbar(data=pred_community, aes(ymin=conf.low, ymax=conf.high), width=0) +
-    geom_point(data=pred_community, aes(y=estimate), size=4) +
-    coord_cartesian(ylim=c(log1p(min(data_test$recovery)),log1p(max(data_test$recovery)))) +
-    scale_color_gradient(low="lightgrey", high=fig_col) +
-    labs(subtitle="community food web", y="ln(recovery credit +1)", col="recovery\ncredit") +
-    theme(panel.background=element_rect(fill="white", colour="grey"),
-          panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-          axis.text.x=element_text(size=10), axis.text.y=element_text(size=8), 
-          axis.title=element_blank(),
-          legend.text=element_text(size=8), legend.title=element_text(size=8),
-          plot.subtitle=element_text(size=10))
+  # transform data for plotting
+  data_plot = rbind(data_test %>% select(landscape_patches,recovery,scale) %>%
+                      mutate(effect="number of communities") %>%
+                      rename(treatment="landscape_patches"),
+                    data_test %>% select(landscape_type,recovery,scale) %>%
+                      mutate(effect="location of communities") %>%
+                      rename(treatment="landscape_type"),
+                    data_test %>% select(community,recovery,scale) %>%
+                      mutate(effect="community food web") %>%
+                      rename(treatment="community")) %>%
+    left_join(., df_comms, by=c("treatment"="community"))
+  data_plot$effect = factor(data_plot$effect, 
+                            levels=c("number of communities","location of communities","community food web"))
+  data_plot[is.na(data_plot)] = 0
+  data_plot = data_plot %>%
+    mutate(treatment=as.factor(fct_reorder(treatment, n_species+0.01*trophic_levels)))
   
-  # combined plot
-  plot_out = ggarrange(p1, p2, p3, nrow=1, common.legend=TRUE, legend="right")
+  data_plot_exp = rbind(data_test_exp %>% select(landscape_patches,recovery,scale) %>%
+                          mutate(effect="number of communities") %>%
+                          rename(treatment="landscape_patches"),
+                        data_test_exp %>% select(landscape_type,recovery,scale) %>%
+                          mutate(effect="location of communities") %>%
+                          rename(treatment="landscape_type"),
+                        data_test_exp %>% select(community,recovery,scale) %>%
+                          mutate(effect="community food web") %>%
+                          rename(treatment="community")) %>%
+    left_join(., df_comms, by=c("treatment"="community"))
+  data_plot_exp$effect = factor(data_plot_exp$effect, 
+                                levels=c("number of communities","location of communities","community food web"))
+  data_plot_exp[is.na(data_plot_exp)] = 0
+  data_plot_exp = data_plot_exp %>%
+    mutate(treatment=as.factor(fct_reorder(treatment, n_species+0.01*trophic_levels)))
   
-  return(plot_out)
+  groups_to_split = c("1A","1A-1P","1A-1P-1H","2A-1P-1H","3A-1P-1H")
+  x_positions = as.numeric(factor(groups_to_split, levels=levels(data_plot$treatment))) + 0.5-4
+  vline_data = data.frame(xintercept=x_positions,
+                          effect="community food web")
+  vline_data$effect = factor(vline_data$effect, 
+                             levels=c("number of communities","location of communities","community food web"))
+  
+  # plot
+  
+  if(unique(data_test$scale)=="empty patches"){
+    p = ggplot(data=NULL, aes(x=treatment)) +
+      geom_point(data=data_plot, aes(y=log1p(recovery), col="simulation"), 
+                 position=position_jitter(width=0.1, height=0), alpha=0.05, size=0.5) +
+      geom_errorbar(data=preds, aes(ymin=conf.low, ymax=conf.high, col="simulation"), 
+                    width=0) +
+      geom_point(data=preds, aes(y=estimate, shape=sig, col="simulation"), 
+                 size=2, fill="white") +
+      geom_point(data=data_plot_exp, aes(y=log1p(recovery), col="experiment"), 
+                 position=position_jitter(width=0.1, height=0), alpha=0.5, size=0.5) +
+      geom_errorbar(data=preds_exp, aes(ymin=conf.low, ymax=conf.high, col="experiment"), 
+                    width=0) +
+      geom_point(data=preds_exp, aes(y=estimate, shape=sig, col="experiment"),
+                 size=2, fill="white") +
+      geom_vline(data=vline_data, aes(xintercept=xintercept), col="grey", linetype="dashed") +
+      facet_grid(scale~effect, scales="free_x", space="free_x",
+                 labeller=labeller(effect=label_wrap_gen(width=12))) +
+      coord_cartesian(ylim=c(log1p(min(data_plot$recovery)),log1p(max(data_plot$recovery)))) +
+      scale_color_manual(name=NULL, 
+                         values=c("simulation"=col_blue_dark, "experiment"=col_orange)) +
+      scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
+      scale_x_discrete(labels=c("1"="1\n \n ","4"="4\n \n ", 
+                                "central"="central\n \n ","peripheral"=" \nperipheral\n ", 
+                                "1A"=" \n \n1A","2A"=" \n \n2A","1A-1P"=" \n1P\n1A",
+                                "3A"=" \n \n3A","1A-2P"=" \n2P\n1A","2A-1P"=" \n1P\n2A",
+                                "1A-1P-1H"="1H\n1P\n1A",
+                                "2A-2P"=" \n2P\n2A","3A-1P"=" \n1P\n3A",
+                                "1A-2P-1H"="1H\n2P\n1A","2A-1P-1H"="1H\n1P\n2A",
+                                "3A-2P"=" \n2P\n3A","2A-2P-1H"="1H\n2P\n2A",
+                                "3A-1P-1H"="1H\n1P\n3A","3A-2P-1H"="1H\n2P\n3A")) +
+      labs(y="ln(recovery credit +1)") +
+      theme(panel.background=element_rect(fill="white", colour="grey"),
+            panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+            axis.text.x=element_text(size=8), axis.text.y=element_text(size=6), 
+            axis.title=element_text(size=8), axis.title.x=element_blank(),
+            strip.background=element_blank(), 
+            strip.text=element_text(size=8),
+            legend.position="bottom", legend.text=element_text(size=8), legend.key=element_blank())
+  }else{
+    p = ggplot(data=NULL, aes(x=treatment)) +
+      geom_point(data=data_plot, aes(y=log1p(recovery), col="simulation"), 
+                 position=position_jitter(width=0.1, height=0), alpha=0.05, size=0.5) +
+      geom_errorbar(data=preds, aes(ymin=conf.low, ymax=conf.high, col="simulation"), 
+                    width=0) +
+      geom_point(data=preds, aes(y=estimate, shape=sig, col="simulation"), 
+                 size=2, fill="white") +
+      geom_point(data=data_plot_exp, aes(y=log1p(recovery), col="experiment"), 
+                 position=position_jitter(width=0.1, height=0), alpha=0.5, size=0.5) +
+      geom_errorbar(data=preds_exp, aes(ymin=conf.low, ymax=conf.high, col="experiment"), 
+                    width=0) +
+      geom_point(data=preds_exp, aes(y=estimate, shape=sig, col="experiment"),
+                 size=2, fill="white") +
+      geom_vline(data=vline_data, aes(xintercept=xintercept), col="grey", linetype="dashed") +
+      facet_grid(scale~effect, scales="free_x", space="free_x",
+                 labeller=labeller(effect=label_wrap_gen(width=12))) +
+      coord_cartesian(ylim=c(log1p(min(data_plot$recovery)),log1p(max(data_plot$recovery)))) +
+      scale_color_manual(name=NULL, 
+                         values=c("simulation"=col_blue_dark, "experiment"=col_orange)) +
+      scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
+      scale_x_discrete(labels=c("1"="1\n \n ","4"="4\n \n ", 
+                                "central"="central\n \n ","peripheral"=" \nperipheral\n ", 
+                                "1A"=" \n \n1A","2A"=" \n \n2A","1A-1P"=" \n1P\n1A",
+                                "3A"=" \n \n3A","1A-2P"=" \n2P\n1A","2A-1P"=" \n1P\n2A",
+                                "1A-1P-1H"="1H\n1P\n1A",
+                                "2A-2P"=" \n2P\n2A","3A-1P"=" \n1P\n3A",
+                                "1A-2P-1H"="1H\n2P\n1A","2A-1P-1H"="1H\n1P\n2A",
+                                "3A-2P"=" \n2P\n3A","2A-2P-1H"="1H\n2P\n2A",
+                                "3A-1P-1H"="1H\n1P\n3A","3A-2P-1H"="1H\n2P\n3A")) +
+      labs(y="ln(recovery credit +1)") +
+      theme(panel.background=element_rect(fill="white", colour="grey"),
+            panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+            axis.text.x=element_text(size=8), axis.text.y=element_text(size=6), 
+            axis.title=element_text(size=8), axis.title.x=element_blank(),
+            strip.background=element_blank(), 
+            strip.text.x=element_blank(), strip.text.y=element_text(size=8),
+            legend.position="bottom", legend.text=element_text(size=8), legend.key=element_blank())
+  }
+  
+  return(p)
 }
-
-plot_model_prediction_fullfig <- function(data_pop, data_metapop, aphid_plot, land_plot, comms){
+plot_model_prediction_fullfig4 = function(data_pop, data_metapop, data_pop_exp, data_metapop_exp,
+                                          df_comms, species_plot){
+  
+  aphid_plot = ifelse(species_plot=="A1", "BB", "LE")
   
   # EMPTY PATCHES
   
   # average across equivalent patches
-  data_test <- data_pop %>%
-    filter(patch_type=="empty", aphid==aphid_plot, land==land_plot, community %in% comms) %>%
+  data_test = data_pop %>%
+    filter(patch_type=="empty", species==species_plot) %>%
     group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
     summarise(recovery=mean(recovery)) %>%
     ungroup() %>%
-    droplevels()
+    mutate(scale="empty patches")
+  data_test_exp = data_pop_exp %>%
+    filter(patch_type=="empty", aphid==aphid_plot) %>%
+    group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+    summarise(recovery=mean(recovery)) %>%
+    ungroup() %>%
+    mutate(scale="empty patches")
   
   # plot
-  plot_empty = plot_model_prediction_partfig(data_test, fig_col=col_blue)
+  plot_empty = plot_model_prediction_partfig4(data_test, data_test_exp, df_comms)
   
   
   # POPULATED PATCHES
   
   # average across equivalent patches
-  data_test <- data_pop %>%
-    filter(patch_type=="populated", aphid==aphid_plot, land==land_plot, community %in% comms) %>%
+  data_test = data_pop %>%
+    filter(patch_type=="populated", species==species_plot) %>%
     group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
     summarise(recovery=mean(recovery)) %>%
     ungroup() %>%
-    droplevels()
+    mutate(scale="populated patches")
+  data_test_exp = data_pop_exp %>%
+    filter(patch_type=="populated", aphid==aphid_plot) %>%
+    group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+    summarise(recovery=mean(recovery)) %>%
+    ungroup() %>%
+    mutate(scale="populated patches")
   
   # plot
-  plot_populated = plot_model_prediction_partfig(data_test, fig_col=col_green)
+  plot_populated = plot_model_prediction_partfig4(data_test, data_test_exp, df_comms)
   
   
   # METAPOPULATION
   
   # subset data for analysis
-  data_test <- data_metapop %>%
-    filter(aphid==aphid_plot, land==land_plot, community %in% comms) %>%
-    droplevels()
+  data_test = data_metapop %>%
+    filter(species==species_plot) %>%
+    mutate(scale="metapopulation")
+  data_test_exp = data_metapop_exp %>%
+    filter(aphid==aphid_plot) %>%
+    mutate(scale="metapopulation")
   
   # plot
-  plot_meta = plot_model_prediction_partfig(data_test, fig_col=col_purple)
+  plot_meta = plot_model_prediction_partfig4(data_test, data_test_exp, df_comms)
   
   # combine plots
   plot_out = ggarrange(plot_empty, plot_populated, plot_meta,
-                       nrow=3, labels=c("A","B","C"))
+                       nrow=3, labels=c("A","B","C"), 
+                       common.legend=TRUE, legend="bottom", font.label=list(size=10))
   
   return(plot_out)
 }
 
+# SIMULATIONS - larger systems ----
 
-# SIMULATIONS - experiment ----
+# landscape size
+n_patches = 50
 
-# ONE APHID
+# landscape adjacency matrix
+M_land = as.matrix(read.table(paste0("Output/M_land_",n_patches,".csv"), quote="\"", comment.char=""))
 
-df_1A_1C = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI, 
-                            A0=A10, dt, tmax, patch_state=c(1,0,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", aphid="BB", community="BB")
-df_1A_1P = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI,
-                            A0=A10, dt, tmax, patch_state=c(0,1,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", aphid="BB", community="BB")
-df_1A_4C = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI,
-                            A0=A10, dt, tmax, patch_state=c(1,1,1,1,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", aphid="BB", community="BB")
-df_1A_4P = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI, 
-                            A0=A10, dt, tmax, patch_state=c(0,1,1,1,1), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", aphid="BB", community="BB")
+# plot the network
+g = graph_from_adjacency_matrix(M_land, mode="undirected")
+layout_fixed = layout_with_fr(g)
+
+plot(g, layout=layout_fixed, 
+     vertex.label=V(g),
+     #vertex.label=NA,
+     vertex.size=10, vertex.color="white", 
+     vertex.frame.color=col_green_dark, vertex.frame.width=1,
+     edge.color=col_green_dark, edge.width=1,
+     vertex.label.color="black", vertex.label.family="Arial", vertex.label.cex=0.5)
+
+# patch properties
+df_patch = data.frame(patch=1:nrow(M_land),
+                      degree=degree(g),
+                      closeness_centrality=closeness(g),
+                      betweenness_centrality=betweenness(g),
+                      eigen_centrality_values=eigen_centrality(g)$vector)
+
+# patch states (initial communities)
+patch_states = matrix(0, 4,nrow(M_land))
+patch_states[1,2]              = 1 # 1C (50 patches)
+patch_states[2,47]             = 1 # 1P (50 patches)
+patch_states[3,c(2,3,4,7)]     = 1 # 4C (50 patches)
+patch_states[4,c(47,35,41,37)] = 1 # 4P (50 patches)
+
+# dataframe with communities for simulations
+df_comms = data.frame(community=c("1A","1A-1P","1A-2P","1A-1P-1H","1A-2P-1H",
+                                  "2A","2A-1P","2A-2P","2A-1P-1H","2A-2P-1H",
+                                  "3A","3A-1P","3A-2P","3A-1P-1H","3A-2P-1H"),
+                      aphids=c(1,1,1,1,1, 2,2,2,2,2, 3,3,3,3,3),
+                      ptoids=rep(c(0,1,2,1,2),3),
+                      hypers=rep(c(0,0,0,1,1),3)) %>%
+  mutate(n_species=aphids+ptoids+hypers,
+         trophic_levels=ifelse(hypers==0,ifelse(ptoids==0,1,2),3))
+
+# run simulations
+for(i in 1:nrow(df_comms)){
+  
+  n_aphid = df_comms$aphids[i]
+  n_ptoid = df_comms$ptoids[i]
+  n_hyper = df_comms$hypers[i]
+  
+  df_sim = rbind(f_reps(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                        M_land, patch_state=patch_states[1,], dt, tmax, n_rep) %>% 
+                   mutate(landscape_patches=1, landscape_type="central"),
+                 f_reps(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                        M_land, patch_state=patch_states[2,], dt, tmax, n_rep) %>% 
+                   mutate(landscape_patches=1, landscape_type="peripheral"),
+                 f_reps(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                        M_land, patch_state=patch_states[3,], dt, tmax, n_rep) %>% 
+                   mutate(landscape_patches=4, landscape_type="central"),
+                 f_reps(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                        M_land, patch_state=patch_states[4,], dt, tmax, n_rep) %>% 
+                   mutate(landscape_patches=4, landscape_type="peripheral")) %>%
+    mutate(community=df_comms$community[i])
+  
+  write.csv(df_sim, paste0("Output/out_",df_comms$community[i],"_",n_patches,".csv"), row.names = FALSE)
+}
 
 
-# TWO APHIDS
+# POSTPROCESSING - larger systems ----
 
-df_2A_1C = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                           Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                           dt, tmax, patch_state=c(1,0,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", community="BB-LE")
-df_2A_1P = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                           Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                           dt, tmax, patch_state=c(0,1,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", community="BB-LE")
-df_2A_4C = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                           Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                           dt, tmax, patch_state=c(1,1,1,1,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", community="BB-LE")
-df_2A_4P = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                           Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                           dt, tmax, patch_state=c(0,1,1,1,1), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", community="BB-LE")
+# create empty dataframe
+df_pop = data.frame(t=integer(),
+                    patch=integer(),
+                    species=character(),
+                    population_size=double(),
+                    dN_comm=double(),
+                    dN_disp=double(),
+                    replica=integer(),
+                    landscape_patches=integer(),
+                    landscape_type=character(),
+                    community=character())
+# import and combine results
+for(i in 1:nrow(df_comms)){
+  df_pop = rbind(df_pop,
+                 fread(paste0("Output/out_",df_comms$community[i],"_",n_patches,".csv")))
+}
+df_pop = df_pop %>%
+  mutate(
+    patch=paste0("patch",patch),
+    landscape_patches=as.factor(landscape_patches),
+    landscape_type=as.factor(landscape_type),
+    species=as.factor(species),
+    community=as.factor(community),
+    landscape=ifelse(landscape_type=="central", paste0(landscape_patches,"C"), paste0(landscape_patches,"P")))
 
-
-# TWO APHIDS & PARASITOID
-
-df_2AP_1C = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                 Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                 beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                 dt, tmax, patch_state=c(1,0,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", community="BB-LE-DR")
-df_2AP_1P = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                 Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                 beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                 dt, tmax, patch_state=c(0,1,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", community="BB-LE-DR")
-df_2AP_4C = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                 Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                 beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                 dt, tmax, patch_state=c(1,1,1,1,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", community="BB-LE-DR")
-df_2AP_4P = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                 Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                 beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                 dt, tmax, patch_state=c(0,1,1,1,1), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", community="BB-LE-DR")
-
-
-# COMBINE MODEL RESULTS
-
-# dataframe with population sizes
-df_pop = rbind(df_1A_1C, df_1A_1P, df_1A_4C, df_1A_4P, 
-               df_2A_1C, df_2A_1P, df_2A_4C, df_2A_4P, 
-               df_2AP_1C, df_2AP_1P, df_2AP_4C, df_2AP_4P) %>%
-  mutate(patch=paste0("patch",patch),
-         landscape_patches=as.factor(landscape_patches),
-         landscape_type=as.factor(landscape_type),
-         aphid=as.factor(aphid),
-         community=as.factor(community),
-         landscape=ifelse(landscape_type=="central", paste0(landscape_patches,"C"), paste0(landscape_patches,"P")),
-         land="L0")
-
-# dataframe with metapopulation sizes
 df_metapop = df_pop %>%
-  group_by(replica, t, landscape_patches, landscape_type, aphid, community, landscape, land) %>%
+  group_by(replica, t, landscape_patches, landscape_type, species, community, landscape) %>%
   summarise(metapopulation_size=sum(population_size)) %>%
   ungroup()
 
-# dataframe with population recovery credit
 df_RC_pop = df_pop %>%
-  group_by(replica, patch, landscape_patches, landscape_type, aphid, community, land) %>%
+  group_by(replica, patch, landscape_patches, landscape_type, species, community) %>%
   mutate(A_diff=(population_size+lead(population_size))/2*dt,
          A_dN_comm=(dN_comm+lead(dN_comm))/2*dt,
          A_dN_disp=(dN_disp+lead(dN_disp))/2*dt) %>%
@@ -1380,9 +890,8 @@ df_RC_pop = df_pop %>%
   ungroup() %>%
   mutate(patch_type=ifelse(pop_t0!=0, "populated", "empty"))
 
-# dataframe with metapopulation recovery credit
 df_RC_metapop = df_metapop %>%
-  group_by(replica, landscape_patches, landscape_type, aphid, community, landscape, land) %>%
+  group_by(replica, landscape_patches, landscape_type, species, community, landscape) %>%
   mutate(A_diff=(metapopulation_size+lead(metapopulation_size))/2*dt) %>%
   summarise(A_diff=sum(A_diff,na.rm=TRUE)) %>%
   left_join(., df_metapop %>% filter(t==0) %>% select(-t) %>%
@@ -1392,378 +901,49 @@ df_RC_metapop = df_metapop %>%
   ungroup()
 
 
-# SIMULATIONS - larger landscapes ----
-
-# L1             1 2 3 4 5 6 7 8 9 10 11 12 13
-M_adj_L1 = matrix(c(0,1,1,1,1,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,1,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,1,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,1,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,1, 0, 0, 0, 0,
-                    0,1,0,0,0,0,0,0,0, 1, 0, 0, 0,
-                    0,0,1,0,0,0,0,0,0, 0, 1, 0, 0,
-                    0,0,0,1,0,0,0,0,0, 0, 0, 1, 0,
-                    0,0,0,0,1,0,0,0,0, 0, 0, 0, 1,
-                    0,0,0,0,0,1,0,0,0, 0, 0, 0, 0,
-                    0,0,0,0,0,0,1,0,0, 0, 0, 0, 0,
-                    0,0,0,0,0,0,0,1,0, 0, 0, 0, 0,
-                    0,0,0,0,0,0,0,0,1, 0, 0, 0, 0), 13,13)
-
-# L2             1 2 3 4 5 6 7 8 9 10 11 12 13
-M_adj_L2 = matrix(c(0,1,1,1,1,1,1,1,1, 1, 1, 1, 1,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0,
-                    1,0,0,0,0,0,0,0,0, 0, 0, 0, 0), 13,13)
-
-# ONE APHID
-
-df_1A_1C_L1 = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI, 
-                               A0=A10, dt, tmax, patch_state=c(1,0,0,0,0,0,0,0,0,0,0,0,0), 
-                               M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", aphid="BB", community="BB", land="L1")
-df_1A_1P_L1 = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI,
-                               A0=A10, dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,0,0,0), 
-                               M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", aphid="BB", community="BB", land="L1")
-df_1A_4C_L1 = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI,
-                               A0=A10, dt, tmax, patch_state=c(1,1,1,1,0,0,0,0,0,0,0,0,0), 
-                               M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", aphid="BB", community="BB", land="L1")
-df_1A_4P_L1 = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI, 
-                               A0=A10, dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,1,1,1), 
-                               M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", aphid="BB", community="BB", land="L1")
-
-df_1A_1C_L2 = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI, 
-                               A0=A10, dt, tmax, patch_state=c(1,0,0,0,0,0,0,0,0,0,0,0,0), 
-                               M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", aphid="BB", community="BB", land="L2")
-df_1A_1P_L2 = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI,
-                               A0=A10, dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,0,0,0), 
-                               M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", aphid="BB", community="BB", land="L2")
-df_1A_4C_L2 = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI,
-                               A0=A10, dt, tmax, patch_state=c(1,1,1,1,0,0,0,0,0,0,0,0,0), 
-                               M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", aphid="BB", community="BB", land="L2")
-df_1A_4P_L2 = dt_one_aphid_rep(r_CI=r1_CI, alpha_CI=alpha11_CI, Ae=Ae1, e_CI=e1_CI, 
-                               A0=A10, dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,1,1,1), 
-                               M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", aphid="BB", community="BB", land="L2")
-
-
-# TWO APHIDS
-
-df_2A_1C_L1 = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                               Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                               dt, tmax, patch_state=c(1,0,0,0,0,0,0,0,0,0,0,0,0), 
-                               M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", community="BB-LE", land="L1")
-df_2A_1P_L1 = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                               Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                               dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,0,0,0), 
-                               M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", community="BB-LE", land="L1")
-df_2A_4C_L1 = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                               Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                               dt, tmax, patch_state=c(1,1,1,1,0,0,0,0,0,0,0,0,0), 
-                               M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", community="BB-LE", land="L1")
-df_2A_4P_L1 = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                               Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                               dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,1,1,1), 
-                               M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", community="BB-LE", land="L1")
-
-df_2A_1C_L2 = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                               Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                               dt, tmax, patch_state=c(1,0,0,0,0,0,0,0,0,0,0,0,0), 
-                               M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", community="BB-LE", land="L2")
-df_2A_1P_L2 = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                               Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                               dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,0,0,0), 
-                               M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", community="BB-LE", land="L2")
-df_2A_4C_L2 = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                               Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                               dt, tmax, patch_state=c(1,1,1,1,0,0,0,0,0,0,0,0,0), 
-                               M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", community="BB-LE", land="L2")
-df_2A_4P_L2 = dt_two_aphid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                               Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                               dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,1,1,1), 
-                               M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", community="BB-LE", land="L2")
-
-
-# TWO APHIDS & PARASITOID
-
-df_2AP_1C_L1 = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                      Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                      beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                      dt, tmax, patch_state=c(1,0,0,0,0,0,0,0,0,0,0,0,0), 
-                                      M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", community="BB-LE-DR", land="L1")
-df_2AP_1P_L1 = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                      Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                      beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                      dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,0,0,0), 
-                                      M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", community="BB-LE-DR", land="L1")
-df_2AP_4C_L1 = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                      Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                      beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                      dt, tmax, patch_state=c(1,1,1,1,0,0,0,0,0,0,0,0,0), 
-                                      M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", community="BB-LE-DR", land="L1")
-df_2AP_4P_L1 = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                      Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                      beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                      dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,1,1,1), 
-                                      M_adj=M_adj_L1, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", community="BB-LE-DR", land="L1")
-
-df_2AP_1C_L2 = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                      Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                      beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                      dt, tmax, patch_state=c(1,0,0,0,0,0,0,0,0,0,0,0,0), 
-                                      M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", community="BB-LE-DR", land="L2")
-df_2AP_1P_L2 = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                      Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                      beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                      dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,0,0,0), 
-                                      M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", community="BB-LE-DR", land="L2")
-df_2AP_4C_L2 = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                      Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                      beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                      dt, tmax, patch_state=c(1,1,1,1,0,0,0,0,0,0,0,0,0), 
-                                      M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", community="BB-LE-DR", land="L2")
-df_2AP_4P_L2 = dt_two_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                      Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                      beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                      dt, tmax, patch_state=c(0,0,0,0,0,0,0,0,0,1,1,1,1), 
-                                      M_adj=M_adj_L2, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", community="BB-LE-DR", land="L2")
-
-
-# COMBINE MODEL RESULTS
-
-# dataframe with population sizes
-df_pop_LAND = rbind(rbind(df_1A_1C, df_1A_1P, df_1A_4C, df_1A_4P, 
-                          df_2A_1C, df_2A_1P, df_2A_4C, df_2A_4P, 
-                          df_2AP_1C, df_2AP_1P, df_2AP_4C, df_2AP_4P) %>%
-                      mutate(land="L0"),
-                    rbind(df_1A_1C_L1, df_1A_1P_L1, df_1A_4C_L1, df_1A_4P_L1, 
-                          df_2A_1C_L1, df_2A_1P_L1, df_2A_4C_L1, df_2A_4P_L1, 
-                          df_2AP_1C_L1, df_2AP_1P_L1, df_2AP_4C_L1, df_2AP_4P_L1,
-                          df_1A_1C_L2, df_1A_1P_L2, df_1A_4C_L2, df_1A_4P_L2, 
-                          df_2A_1C_L2, df_2A_1P_L2, df_2A_4C_L2, df_2A_4P_L2, 
-                          df_2AP_1C_L2, df_2AP_1P_L2, df_2AP_4C_L2, df_2AP_4P_L2)) %>%
-  mutate(patch=paste0("patch",patch),
-         landscape_patches=as.factor(landscape_patches),
-         landscape_type=as.factor(landscape_type),
-         aphid=as.factor(aphid),
-         community=as.factor(community),
-         landscape=ifelse(landscape_type=="central", paste0(landscape_patches,"C"), paste0(landscape_patches,"P")))
-
-# dataframe with metapopulation sizes
-df_metapop_LAND = df_pop_LAND %>%
-  group_by(replica, t, landscape_patches, landscape_type, aphid, community, landscape, land) %>%
-  summarise(metapopulation_size=sum(population_size)) %>%
-  ungroup()
-
-# dataframe with population recovery credit
-df_RC_pop_LAND = df_pop_LAND %>%
-  group_by(replica, patch, landscape_patches, landscape_type, aphid, community, land) %>%
-  mutate(A_diff=(population_size+lead(population_size))/2*dt,
-         A_dN_comm=(dN_comm+lead(dN_comm))/2*dt,
-         A_dN_disp=(dN_disp+lead(dN_disp))/2*dt) %>%
-  summarise(A_diff=sum(A_diff,na.rm=TRUE),
-            A_dN_comm=sum(A_dN_comm,na.rm=TRUE),
-            A_dN_disp=sum(A_dN_disp,na.rm=TRUE)) %>%
-  left_join(., df_pop_LAND %>% filter(t==0) %>% select(-t, -dN_comm, -dN_disp) %>%
-              rename(pop_t0=population_size)) %>%
-  mutate(recovery=A_diff,
-         A_diff=A_diff-pop_t0*tmax) %>%
-  ungroup() %>%
-  mutate(patch_type=ifelse(pop_t0!=0, "populated", "empty"))
-
-# dataframe with metapopulation recovery credit
-df_RC_metapop_LAND = df_metapop_LAND %>%
-  group_by(replica, landscape_patches, landscape_type, aphid, community, landscape, land) %>%
-  mutate(A_diff=(metapopulation_size+lead(metapopulation_size))/2*dt) %>%
-  summarise(A_diff=sum(A_diff,na.rm=TRUE)) %>%
-  left_join(., df_metapop_LAND %>% filter(t==0) %>% select(-t) %>%
-              rename(metapop_t0=metapopulation_size)) %>%
-  mutate(recovery=A_diff,
-         A_diff=A_diff-metapop_t0*tmax) %>%
-  ungroup()
-
-
-# SIMULATIONS - larger communities ----
-
-# THREE APHIDS & PARASITOID
-
-df_3AP_1C = dt_three_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI,
-                                     Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                     beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                     dt, tmax, patch_state=c(1,0,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", community="BB-LE-A3-DR")
-df_3AP_1P = dt_three_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI,
-                                     Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                     beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                     dt, tmax, patch_state=c(0,1,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", community="BB-LE-A3-DR")
-df_3AP_4C = dt_three_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI,
-                                     Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                     beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                     dt, tmax, patch_state=c(1,1,1,1,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", community="BB-LE-A3-DR")
-df_3AP_4P = dt_three_aphid_ptoid_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI,
-                                     Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                     beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                     dt, tmax, patch_state=c(0,1,1,1,1), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", community="BB-LE-A3-DR")
-
-
-# TWO APHIDS & PARASITOID & HYPER-PARASITOID
-
-df_2APH_1C = dt_two_aphid_ptoid_hyper_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                          Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                          beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                          dt, tmax, patch_state=c(1,0,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="central", community="BB-LE-DR-HP")
-df_2APH_1P = dt_two_aphid_ptoid_hyper_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                          Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                          beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                          dt, tmax, patch_state=c(0,1,0,0,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=1, landscape_type="peripheral", community="BB-LE-DR-HP")
-df_2APH_4C = dt_two_aphid_ptoid_hyper_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                          Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                          beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                          dt, tmax, patch_state=c(1,1,1,1,0), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="central", community="BB-LE-DR-HP")
-df_2APH_4P = dt_two_aphid_ptoid_hyper_rep(r1_CI, r2_CI, alpha11_CI, alpha22_CI, alpha12_CI, alpha21_CI, 
-                                          Ae1, Ae2, e1_CI, e2_CI, A10, A20,
-                                          beta1_CI, beta2_CI, pmax, f, tau, lambda, Pe, eP,
-                                          dt, tmax, patch_state=c(0,1,1,1,1), M_adj, n_rep) %>% 
-  mutate(landscape_patches=4, landscape_type="peripheral", community="BB-LE-DR-HP")
-
-
-# COMBINE MODEL RESULTS
-
-# dataframe with population sizes
-df_pop_COMM = rbind(df_1A_1C, df_1A_1P, df_1A_4C, df_1A_4P, 
-                    df_2A_1C, df_2A_1P, df_2A_4C, df_2A_4P,
-                    df_2AP_1C, df_2AP_1P, df_2AP_4C, df_2AP_4P,
-                    df_3AP_1C, df_3AP_1P, df_3AP_4C, df_3AP_4P,
-                    df_2APH_1C, df_2APH_1P, df_2APH_4C, df_2APH_4P) %>%
-  mutate(patch=paste0("patch",patch),
-         landscape_patches=as.factor(landscape_patches),
-         landscape_type=as.factor(landscape_type),
-         aphid=as.factor(aphid),
-         community=as.factor(community),
-         landscape=ifelse(landscape_type=="central", paste0(landscape_patches,"C"), paste0(landscape_patches,"P")),
-         land="L0")
-
-# dataframe with metapopulation sizes
-df_metapop_COMM = df_pop_COMM %>%
-  group_by(replica, t, landscape_patches, landscape_type, aphid, community, landscape, land) %>%
-  summarise(metapopulation_size=sum(population_size)) %>%
-  ungroup()
-
-# dataframe with population recovrey credit
-df_RC_pop_COMM = df_pop_COMM %>%
-  group_by(replica, patch, landscape_patches, landscape_type, aphid, community, land) %>%
-  mutate(A_diff=(population_size+lead(population_size))/2*dt,
-         A_dN_comm=(dN_comm+lead(dN_comm))/2*dt,
-         A_dN_disp=(dN_disp+lead(dN_disp))/2*dt) %>%
-  summarise(A_diff=sum(A_diff,na.rm=TRUE),
-            A_dN_comm=sum(A_dN_comm,na.rm=TRUE),
-            A_dN_disp=sum(A_dN_disp,na.rm=TRUE)) %>%
-  left_join(., df_pop_COMM %>% filter(t==0) %>% select(-t, -dN_comm, -dN_disp) %>%
-              rename(pop_t0=population_size)) %>%
-  mutate(recovery=A_diff,
-         A_diff=A_diff-pop_t0*tmax) %>%
-  ungroup() %>%
-  mutate(patch_type=ifelse(pop_t0!=0, "populated", "empty"))
-
-# dataframe with metapopulation recovrey credit
-df_RC_metapop_COMM = df_metapop_COMM %>%
-  group_by(replica, landscape_patches, landscape_type, aphid, community, landscape, land) %>%
-  mutate(A_diff=(metapopulation_size+lead(metapopulation_size))/2*dt) %>%
-  summarise(A_diff=sum(A_diff,na.rm=TRUE)) %>%
-  left_join(., df_metapop_COMM %>% filter(t==0) %>% select(-t) %>%
-              rename(metapop_t0=metapopulation_size)) %>%
-  mutate(recovery=A_diff,
-         A_diff=A_diff-metapop_t0*tmax) %>%
-  ungroup()
-
-
-# PLOTS - experiment ----
+# PLOTS - larger systems ----
 
 # TIME SERIES
 
-ggplot(data=filter(df_pop, aphid=="BB") %>% na.omit(), 
-       aes(x=t, y=population_size, group=interaction(replica,community), col=community)) +
+df_metapop = df_metapop %>%
+  left_join(., df_comms) %>%
+  mutate(community=as.factor(fct_reorder(community, n_species+0.01*trophic_levels)))
+
+ggplot(data=filter(df_metapop, species=="A1"), 
+       aes(x=t, y=metapopulation_size, group=interaction(replica,landscape), col=landscape)) +
   geom_line(alpha=0.1) +
-  facet_grid(landscape~patch, scales="free_y") +
+  facet_wrap(~community, scales="free_y") +
   coord_cartesian(x=c(0,NA), y=c(0,NA)) +
-  scale_color_manual(values=palette_community) +
-  labs(x="time (day)", y="population size") +
+  scale_color_manual(values=palette_landscape) +
+  labs(x="time (day)", y="metapopulation size") +
   guides(colour=guide_legend(override.aes=list(alpha=1))) +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
         strip.text=element_text(size=8), 
-        legend.text=element_text(size=8), legend.title=element_text(size=8))
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        legend.position="bottom")
 
-ggplot(data=filter(df_pop, aphid=="LE") %>% na.omit(), 
-       aes(x=t, y=population_size, group=interaction(replica,community), col=community)) +
-  geom_line(alpha=0.1) +
-  facet_grid(landscape~patch, scales="free_y") +
-  coord_cartesian(x=c(0,NA), y=c(0,NA)) +
-  scale_color_manual(values=palette_community[c(2,3)]) +
-  labs(x="time (day)", y="population size") +
-  guides(colour=guide_legend(override.aes=list(alpha=1))) +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
-        strip.text=element_text(size=8), 
-        legend.text=element_text(size=8), legend.title=element_text(size=8))
 
-# contributions to population size
 df_pop = df_pop %>%
   left_join(., df_pop %>% filter(t==0) %>% 
               mutate(patch_type=ifelse(population_size==0,"empty","populated")) %>%
-              select(landscape, community,aphid, patch, replica, patch_type)) %>%
+              select(landscape, community, species, patch, replica, patch_type)) %>%
   mutate(dN_disp_fract=dN_disp/(abs(dN_disp)+abs(dN_comm)),
          dN_disp_fract=ifelse(is.nan(dN_disp_fract),0,dN_disp_fract))
 
-ggplot(data=filter(df_pop, aphid=="BB", community=="BB") %>% na.omit(), 
+ggplot(data=filter(df_pop, species=="A1", community=="1A") %>% 
+         na.omit(), 
        aes(x=t, y=dN_disp_fract, group=interaction(patch,replica), col=patch_type)) +
   geom_hline(yintercept=0) +
   geom_line(alpha=0.1) +
-  facet_grid(landscape~patch, scales="free_y") +
+  facet_grid(landscape~patch_type) +
   scale_color_manual(values=c("black",col_green)) +
   labs(x="time (day)", y="relative contribution of dispersal to population change", col="patch type") +
   guides(colour=guide_legend(override.aes=list(alpha=1))) +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
         strip.text=element_text(size=8), 
         legend.text=element_text(size=8), legend.title=element_text(size=8),
         legend.position="bottom")
@@ -1771,194 +951,167 @@ ggplot(data=filter(df_pop, aphid=="BB", community=="BB") %>% na.omit(),
 
 # RECOVERY CREDIT
 
-# combine dataframes for plotting
-data_plot <- rbind(df_RC_pop %>%
-                     filter(patch_type=="empty") %>%
-                     group_by(community, landscape, replica, aphid, land) %>%
-                     summarise(recovery=mean(recovery)) %>%
-                     ungroup() %>%
-                     mutate(scale="empty patches"),
-                   df_RC_pop %>%
-                     filter(patch_type=="populated") %>%
-                     group_by(community, landscape, replica, aphid, land) %>%
-                     summarise(recovery=mean(recovery)) %>%
-                     ungroup() %>%
-                     mutate(scale="populated patches"),
-                   df_RC_metapop %>% select(-c(landscape_patches, landscape_type, A_diff, metapop_t0)) %>%
-                     mutate(scale="metapopulation"))
-data_plot$scale <-  factor(data_plot$scale, c("empty patches","populated patches","metapopulation"))
+data_plot = rbind(df_RC_pop %>%
+                    filter(patch_type=="empty") %>%
+                    group_by(community, landscape, replica, species) %>%
+                    summarise(recovery=mean(recovery)) %>%
+                    ungroup() %>%
+                    mutate(scale="empty patches"),
+                  df_RC_pop %>%
+                    filter(patch_type=="populated") %>%
+                    group_by(community, landscape, replica, species) %>%
+                    summarise(recovery=mean(recovery)) %>%
+                    ungroup() %>%
+                    mutate(scale="populated patches"),
+                  df_RC_metapop %>% select(-c(landscape_patches, landscape_type, A_diff, metapop_t0)) %>%
+                    mutate(scale="metapopulation")) %>%
+  filter(species=="A1") %>%
+  left_join(., df_comms) %>%
+  mutate(community=as.factor(fct_reorder(community, n_species+0.01*trophic_levels)))
+data_plot$scale =  factor(data_plot$scale, c("empty patches","populated patches","metapopulation"))
 
 
-ggplot(data=filter(data_plot, aphid=="BB"), 
+ggplot(data=filter(data_plot, scale=="empty patches"),
        aes(x=landscape, y=recovery, col=landscape)) +
   geom_jitter(alpha=0.1) +
   geom_boxplot(alpha=0) +
-  facet_grid(scale~community, scales="free_y") +
+  facet_wrap(~community, scales="free_y") +
   scale_color_manual(values=palette_landscape) +
+  lims(y=c(0,NA)) +
   labs(y="recovery credit") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
         strip.text=element_text(size=8), 
         legend.position="none")
 
-ggplot(data=filter(data_plot, aphid=="LE"), 
+ggplot(data=filter(data_plot, scale=="populated patches"),
        aes(x=landscape, y=recovery, col=landscape)) +
   geom_jitter(alpha=0.1) +
   geom_boxplot(alpha=0) +
-  facet_grid(scale~community, scales="free_y") +
+  facet_wrap(~community, scales="free_y") +
   scale_color_manual(values=palette_landscape) +
+  lims(y=c(0,NA)) +
   labs(y="recovery credit") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
+        strip.text=element_text(size=8), 
+        legend.position="none")
+
+ggplot(data=filter(data_plot, scale=="metapopulation"),
+       aes(x=landscape, y=recovery, col=landscape)) +
+  geom_jitter(alpha=0.1) +
+  geom_boxplot(alpha=0) +
+  facet_wrap(~community, scales="free_y") +
+  scale_color_manual(values=palette_landscape) +
+  lims(y=c(0,NA)) +
+  labs(y="recovery credit") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
         strip.text=element_text(size=8), 
         legend.position="none")
 
 
-# ANOVA PREDICTIONS
+# STATISTICAL ANALYSIS - larger systems ----
 
-plot_model_prediction_fullfig(data_pop=df_RC_pop, data_metapop=df_RC_metapop, 
-                              aphid_plot="BB", land_plot="L0", 
-                              comms=c("BB","BB-LE","BB-LE-DR"))
+# average across equivalent patches
+# EMPTY PATCHES
+data_test = df_RC_pop %>%
+  filter(patch_type=="empty", species=="A1") %>%
+  group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+  summarise(recovery=mean(recovery)) %>%
+  ungroup() %>%
+  mutate(scale="empty patches") %>%
+  left_join(., df_comms)
+# POPULATED PATCHES
+data_test = df_RC_pop %>%
+  filter(patch_type=="populated", species=="A1") %>%
+  group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+  summarise(recovery=mean(recovery)) %>%
+  ungroup() %>%
+  mutate(scale="populated patches") %>%
+  left_join(., df_comms)
+# METAPOPULATION
+data_test = df_RC_metapop %>%
+  filter(species=="A1") %>%
+  mutate(scale="metapopulation") %>%
+  left_join(., df_comms)
 
-plot_model_prediction_fullfig(data_pop=df_RC_pop, data_metapop=df_RC_metapop, 
-                              aphid_plot="LE", land_plot="L0", 
-                              comms=c("BB","BB-LE","BB-LE-DR"))
+# linear anova, recovery log(x+1) transformed (to deal with 0-values)
+anova_m2 = lm(log1p(recovery) ~ landscape_patches*landscape_type*community, data=data_test)
+anova(anova_m2)
+performance::check_model(anova_m2) 
 
+# average predictions
+pred_landscape_patches = avg_predictions(anova_m2, variables="landscape_patches", by="landscape_patches")
+pred_landscape_type = avg_predictions(anova_m2, variables="landscape_type", by="landscape_type")
+pred_community = avg_predictions(anova_m2, variables="community", by="community") 
 
-# PLOTS - larger landscapes ----
+# average comparisons
+comp_patches = avg_comparisons(anova_m2, variables="landscape_patches")
+comp_type = avg_comparisons(anova_m2, variables="landscape_type")
+comp_community_all = t(outer(pred_community$estimate, pred_community$estimate, FUN="-"))
+rownames(comp_community_all) = pred_community$community
+colnames(comp_community_all) = pred_community$community
+comp_community_all[1,-c(2,6)] = NA
+comp_community_all[2,-c(3,4,7)] = NA
+comp_community_all[3,-c(5,8)] = NA
+comp_community_all[4,-c(5,9)] = NA
+comp_community_all[5,-c(10)] = NA
+comp_community_all[6,-c(7,11)] = NA
+comp_community_all[7,-c(8,9,12)] = NA
+comp_community_all[8,-c(10,13)] = NA
+comp_community_all[9,-c(10,14)] = NA
+comp_community_all[10,-c(15)] = NA
+comp_community_all[11,-c(12)] = NA
+comp_community_all[12,-c(13,14)] = NA
+comp_community_all[13,-c(15)] = NA
+comp_community_all[14,-c(15)] = NA
+comp_community_all[15,] = NA
 
-# RECOVERY CREDIT
+# % change
+comp_patches$estimate / pred_landscape_patches$estimate[1] * 100
+comp_type$estimate / pred_landscape_type$estimate[1] * 100
+com_community_change = comp_community_all / pred_community$estimate * 100
+com_community_change[com_community_change>100] = 0
+com_community_change[com_community_change<(-100)] = 0
 
-# combine dataframes for plotting
-data_plot_land <- rbind(df_RC_pop_LAND %>%
-                          filter(patch_type=="empty") %>%
-                          group_by(community, landscape_patches, landscape_type, landscape, replica, aphid, land) %>%
-                          summarise(recovery=mean(recovery)) %>%
-                          ungroup() %>%
-                          mutate(scale="empty patches"),
-                        df_RC_pop_LAND %>%
-                          filter(patch_type=="populated") %>%
-                          group_by(community, landscape_patches, landscape_type, landscape, replica, aphid, land) %>%
-                          summarise(recovery=mean(recovery)) %>%
-                          ungroup() %>%
-                          mutate(scale="populated patches"),
-                        df_RC_metapop_LAND %>% select(-c(A_diff, metapop_t0)) %>%
-                          mutate(scale="metapopulation"))
-data_plot_land$scale <-  factor(data_plot_land$scale, c("empty patches","populated patches","metapopulation"))
+# dataframe with % change for community effect
+df_comm_effect = data.frame(expand.grid(community=row.names(com_community_change),
+                                        community2=row.names(com_community_change)),
+                            effect=as.vector(com_community_change)) %>%
+  na.omit() %>%
+  left_join(., df_comms) %>%
+  left_join(., df_comms, by=c("community2"="community")) %>%
+  mutate(community_change=ifelse((aphids.y-aphids.x)==1,"+A",
+                                 ifelse((ptoids.y-ptoids.x)==1,"+P","+H")))
+df_comm_effect$community_change = factor(df_comm_effect$community_change, c("+A","+P","+H"))
 
-ggplot(data=filter(data_plot_land, aphid=="BB", community=="BB"), 
-       aes(x=landscape, y=recovery, col=landscape)) +
-  geom_jitter(alpha=0.1) +
-  geom_boxplot(alpha=0) +
-  facet_grid(scale~land, scales="free_y") +
-  scale_color_manual(values=palette_landscape) +
-  labs(y="recovery credit") +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        legend.position="none")
-
-ggplot(data=filter(data_plot_land, aphid=="BB", community=="BB", scale=="empty patches"), 
-       aes(x=landscape, y=log1p(recovery), col=recovery)) +
-  geom_jitter() +
-  geom_boxplot(alpha=0) +
-  facet_grid(~land, scales="free_y") +
-  scale_color_gradient(low="lightgrey", high=col_blue) +
-  labs(y="ln(recovery credit +1)", col="recovery\ncredit") +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        strip.background=element_blank(),
-        axis.text.x=element_text(size=8), axis.text.y=element_text(size=8),
-        legend.text=element_text(size=8), legend.title=element_text(size=8),
-        strip.text=element_blank())
-
-
-# ANOVA PREDICTIONS
-
-plot_model_prediction_fullfig(data_pop=df_RC_pop_LAND, data_metapop=df_RC_metapop_LAND, 
-                              aphid_plot="BB", land_plot="L1", 
-                              comms=c("BB","BB-LE","BB-LE-DR"))
-
-plot_model_prediction_fullfig(data_pop=df_RC_pop_LAND, data_metapop=df_RC_metapop_LAND, 
-                              aphid_plot="BB", land_plot="L2", 
-                              comms=c("BB","BB-LE","BB-LE-DR"))
-
-
-# PLOTS - larger communities ----
-
-# RECOVERY CREDIT
-
-# combine dataframes for plotting
-data_plot_comm <- rbind(df_RC_pop_COMM %>%
-                          filter(patch_type=="empty") %>%
-                          group_by(community, landscape_patches, landscape_type, landscape, replica, aphid, land) %>%
-                          summarise(recovery=mean(recovery)) %>%
-                          ungroup() %>%
-                          mutate(scale="empty patches"),
-                        df_RC_pop_COMM %>%
-                          filter(patch_type=="populated") %>%
-                          group_by(community, landscape_patches, landscape_type, landscape, replica, aphid, land) %>%
-                          summarise(recovery=mean(recovery)) %>%
-                          ungroup() %>%
-                          mutate(scale="populated patches"),
-                        df_RC_metapop_COMM %>% select(-c(A_diff, metapop_t0)) %>%
-                          mutate(scale="metapopulation"))
-data_plot_comm$scale <-  factor(data_plot_comm$scale, 
-                                c("empty patches","populated patches","metapopulation"))
-data_plot_comm$community <-  factor(data_plot_comm$community, 
-                                    c("BB","BB-LE","BB-LE-DR","BB-LE-A3-DR","BB-LE-DR-HP"))
-
-p1 = ggplot(data=filter(data_plot_comm, aphid=="BB", scale=="empty patches"), 
-            aes(x=community, y=log1p(recovery), col=recovery)) +
-  geom_jitter() +
-  geom_boxplot(alpha=0) +
-  facet_wrap(~scale, scales="free_y") +
-  scale_color_gradient(low="lightgrey", high=col_blue) +
-  labs(y="ln(recovery credit +1)") +
+# plot community change effect
+plot_lim = max(abs(df_comm_effect$effect))
+ggplot(data=df_comm_effect, 
+       aes(x=community_change, y=fct_reorder(community, n_species.x+0.01*trophic_levels.x, .desc=TRUE), 
+           fill=effect)) +
+  geom_point(size=6, shape=21, col="grey") +
+  coord_fixed() +
+  scale_fill_distiller(palette="RdBu", limits=c(-plot_lim,plot_lim), direction=1) +
+  labs(x="species addition", y="community food web", fill="% change\nin recovery\ncredit") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
         strip.background=element_blank(),
-        axis.text.x=element_text(size=8, angle=90, hjust=1), axis.text.y=element_text(size=8),
-        strip.text=element_text(size=10), axis.title.x=element_blank(),
-        legend.text=element_text(size=8), legend.title=element_text(size=8),
-        legend.position="bottom")
-
-p2 = ggplot(data=filter(data_plot_comm, aphid=="BB", scale=="populated patches"), 
-            aes(x=community, y=log1p(recovery), col=recovery)) +
-  geom_jitter() +
-  geom_boxplot(alpha=0) +
-  facet_wrap(~scale, scales="free_y") +
-  scale_color_gradient(low="lightgrey", high=col_green) +
-  labs(y="ln(recovery credit +1)") +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        strip.background=element_blank(),
-        axis.text.x=element_text(size=8, angle=90, hjust=1), axis.text.y=element_text(size=8),
-        strip.text=element_text(size=10), axis.title=element_blank(),
-        legend.text=element_text(size=8), legend.title=element_text(size=8),
-        legend.position="bottom")
-
-p3 = ggplot(data=filter(data_plot_comm, aphid=="BB", scale=="metapopulation"), 
-            aes(x=community, y=log1p(recovery), col=recovery)) +
-  geom_jitter() +
-  geom_boxplot(alpha=0) +
-  facet_wrap(~scale, scales="free_y") +
-  scale_color_gradient(low="lightgrey", high=col_purple, breaks=c(5000,20000,35000)) +
-  labs(y="ln(recovery credit +1)") +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        strip.background=element_blank(),
-        axis.text.x=element_text(size=8, angle=90, hjust=1), axis.text.y=element_text(size=8),
-        strip.text=element_text(size=10), axis.title=element_blank(),
-        legend.text=element_text(size=8), legend.title=element_text(size=8),
-        legend.position="bottom")
-
-ggarrange(p1,p2,p3, nrow=1)
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        strip.text=element_text(size=10),
+        legend.text=element_text(size=6), legend.title=element_text(size=8),
+        legend.position="right")
 
 
-# ANOVA PREDICTIONS
+# PLOTS - combined experiment & simulations ----
 
-plot_model_prediction_fullfig(data_pop=df_RC_pop_COMM, data_metapop=df_RC_metapop_COMM, 
-                              aphid_plot="BB", land_plot="L0", 
-                              comms=c("BB","BB-LE","BB-LE-DR","BB-LE-A3-DR","BB-LE-DR-HP"))
+# import experimental results
+df_RC_pop_exp = read.csv("Output/data_recovery_pop_exp.csv")
+df_RC_metapop_exp = read.csv("Output/data_recovery_metapop_exp.csv")
+
+plot_model_prediction_fullfig4(df_RC_pop, df_RC_metapop, df_RC_pop_exp, df_RC_metapop_exp,
+                               df_comms, species_plot="A1")

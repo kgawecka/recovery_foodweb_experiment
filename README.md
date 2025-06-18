@@ -5,9 +5,9 @@ This repository contains the data and code used in the manuscript [Gawecka et al
 ## `Code`
 All code was created in R version 4.4.0.
 
-`experiment_analysis.R` - analysis of the main experiemnt, including manuscript figures
+`experiment_analysis.R` - analysis of the main experiment, including manuscript figures
 
-`parameterization.R` - anlaysis of parameterization experiments and determination of model parameters
+`parameterization.R` - analysis of parameterization experiments and determination of model parameters
 
 `model_simulations.R` - metacommunity model functions, model simulations and model output analysis, including manuscript figures
 
@@ -18,3 +18,11 @@ All code was created in R version 4.4.0.
 `parameterization_data.xlsx` - parameterization experiments data
 
 `model_parameters.csv` - metacommunity model parameters determined in parameterization procedure
+
+## `Output`
+
+`data_recovery_metapop_exp.csv` - metapopulation recovery credit computed on experimental data (output of `experiment_analysis.R`)
+
+`data_recovery_pop_exp.csv` - population recovery credit computed on experimental data (output of `experiment_analysis.R`)
+
+`M_land_50.csv` - simulated landscape adjacency matrix (output of `model_simulations.R`)

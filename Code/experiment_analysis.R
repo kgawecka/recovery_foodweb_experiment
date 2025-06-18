@@ -16,6 +16,11 @@ col_blue <- "#2f7eceff"
 col_green <- "#4da43aff"
 col_purple <- "#8e1558ff"
 
+# figure widths
+width_singlecol = 82
+width_twothirds = 110
+width_fullpage = 173
+
 
 # DATA IMPORT ----
 
@@ -51,7 +56,7 @@ data_pop <- data %>%
   filter(landscape!="5") %>%
   droplevels() %>%
   mutate(aphid=as.factor(ifelse(aphid=="BRBR", "BB", "LE")), 
-         community=as.factor(ifelse(community=="BRBR","BB",ifelse(community=="BRBR_LIER","BB-LE","BB-LE-DR"))))
+         community=as.factor(ifelse(community=="BRBR","1A",ifelse(community=="BRBR_LIER","2A","2A-1P"))))
 
 # calculate metapopulation size - total count across all patches
 data_metapop <- data_pop %>%
@@ -145,6 +150,10 @@ data_recovery_metapop <- data_metapop_rec %>%
          landscape_type=substring(landscape, 2,2),
          landscape_type=as.factor(ifelse(landscape_type=="C","central","peripheral"))) %>%
   dplyr::select(-c(recovery_total,metapop_t0,tmax))
+
+# write out dataframes
+write.csv(data_recovery_pop, "Output/data_recovery_pop_exp.csv", row.names=FALSE)
+write.csv(data_recovery_metapop, "Output/data_recovery_metapop_exp.csv", row.names=FALSE)
 
 
 # STATISTICAL ANALYSIS ----
@@ -374,9 +383,10 @@ ggplot(data=filter(data_pop, aphid=="BB") %>% na.omit(),
   labs(x="time (day)", y="population size") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
         strip.text=element_text(size=8), 
-        legend.text=element_text(size=8), legend.title=element_text(size=8))
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        legend.position="bottom")
 
 ggplot(data=filter(data_pop, aphid=="LE") %>% na.omit(), 
        aes(x=t_day, y=count, group=interaction(replica,community), col=community)) +
@@ -388,9 +398,10 @@ ggplot(data=filter(data_pop, aphid=="LE") %>% na.omit(),
   labs(x="time (day)", y="population size") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
         strip.text=element_text(size=8), 
-        legend.text=element_text(size=8), legend.title=element_text(size=8))
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        legend.position="bottom")
 
 
 # RECOVERY CREDIT
@@ -421,7 +432,7 @@ ggplot(data=filter(data_plot, aphid=="BB"),
   labs(y="recovery credit") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
         strip.text=element_text(size=8), 
         legend.position="none")
 
@@ -434,6 +445,6 @@ ggplot(data=filter(data_plot, aphid=="LE"),
   labs(y="recovery credit") +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
         strip.text=element_text(size=8), 
         legend.position="none")
