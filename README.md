@@ -7,17 +7,25 @@ All code was created in R version 4.4.0.
 
 `experiment_analysis.R` - analysis of the main experiment, including manuscript figures
 
-`parameterization.R` - analysis of parameterization experiments and determination of model parameters
+`parameterisation.R` - analysis of parameterization experiments and determination of model parameters
 
 `model_simulations.R` - metacommunity model functions, model simulations and model output analysis, including manuscript figures
 
 ## `Data`
 
-`experiment_data.xlsx` - main experiment data
+`experiment_data.csv` - main experiment data
 
-`parameterization_data.xlsx` - parameterization experiments data
+`parameterisation_data_X.csv` - parameterisation experiments data
+- `_BRBR` - single aphid species (_Brevicoryne brassicae_) response
+- `_LIER` - single aphid species (_Lipaphis erysimi_) response
+- `_DIRA_dispersal` - parasitoid (_Diaeretiella rapae_) dispersal
+- `_DIRA_emergence` - parasitoid (_Diaeretiella rapae_) emergence from mummies
+- `_DIRA_females` - parasitoid (_Diaeretiella rapae_) proportion of females
+- `_DIRA_function` - parasitoid (_Diaeretiella rapae_) functional response
+- `_DIRA_mortality` - parasitoid (_Diaeretiella rapae_) mortality
+- `_DIRA_parasitism` - parasitoid (_Diaeretiella rapae_) maximum parasitism rate
 
-`model_parameters.csv` - metacommunity model parameters determined in parameterization procedure
+`model_parameters.csv` - metacommunity model parameters determined in parameterisation procedure
 
 ## `Output`
 
