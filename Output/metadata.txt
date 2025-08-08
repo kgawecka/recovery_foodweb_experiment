@@ -1,0 +1,48 @@
+BRBR = aphid Brevicoryne brassicae
+LIER = aphid Lipaphis erysimi
+DIRA = parasitoid Diaeretiella rapae
+
+
+data_recovery_metapop_exp.csv
+
+community - insect community
+- 1A = aphid BRBR
+- 2A = aphids BRBR and LIER
+- 2A-1P = aphids BRBR and LIER, and parasitoid DIRA
+landscape - landscape configuration
+- 1C = insect community in one central patch (patch 1)
+- 1P = insect community in one peripheral patch (patch 2)
+- 4C = insect community in four central patches (patches 1-4)
+- 4P = insect community in four peripheral patches (patches 2-5)
+replica - setup replica
+aphid - aphid species
+- BB = aphid BRBR
+- LE = aphid LIER
+recovery - calculated metapopulation recovery credit
+landscape_patches - number of initially populated patches in the landscape
+landscape_type - location of initially populated patches in the landscape
+
+
+data_recovery_pop_exp.csv
+
+community - insect community
+- 1A = aphid BRBR
+- 2A = aphids BRBR and LIER
+- 2A-1P = aphids BRBR and LIER, and parasitoid DIRA
+landscape - landscape configuration
+- 1C = insect community in one central patch (patch 1)
+- 1P = insect community in one peripheral patch (patch 2)
+- 4C = insect community in four central patches (patches 1-4)
+- 4P = insect community in four peripheral patches (patches 2-5)
+replica - setup replica
+aphid - aphid species
+- BB = aphid BRBR
+- LE = aphid LIER
+recovery - calculated population recovery credit
+patch_type - type of patch - initially populated or initially empty
+patch_position - position of patch in the landscape - centre or periphery
+landscape_patches - number of initially populated patches in the landscape
+landscape_type - location of initially populated patches in the landscape
+
+
+M_land_50.csv - adjacency matrix of simulated landscape with 50 patches

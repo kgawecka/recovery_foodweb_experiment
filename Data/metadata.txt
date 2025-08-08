@@ -1,0 +1,123 @@
+BRBR = aphid Brevicoryne brassicae
+LIER = aphid Lipaphis erysimi
+DIRA = parasitoid Diaeretiella rapae
+
+
+experiment_data.csv
+
+initials - person recording the observation
+date - date of observation
+time - time of observation (UTC+01:00)
+community - insect community
+- BRBR = aphid BRBR
+- BRBR_LIER = aphids BRBR and LIER
+- BRBR_LIER_DIRA = aphids BRBR and LIER, and parasitoid DIRA
+landscape - landscape configuration
+- 1C = insect community in one central patch (patch 1)
+- 1P = insect community in one peripheral patch (patch 2)
+- 4C = insect community in four central patches (patches 1-4)
+- 4P = insect community in four peripheral patches (patches 2-5)
+- 5 = insect community in all 5 patches
+replica - setup replica
+patchX_BRBR - number of observed BRBR in patch X
+patchX_LIER - number of observed LIER in patch X
+
+
+parameterisation_data_BRBR.csv & parameterisation_data_LIER.csv
+
+initials - person recording the observation
+date - date of observation
+time - time of observation (UTC+01:00)
+replica - setup replica
+patch1_wingless - number of observed wingless aphids in patch 1 (initially populated patch)
+patch1_winged - number of observed winged aphids in patch 1 (initially populated patch)
+patch2_wingless - number of observed wingless aphids in patch 2 (initially empty patch)
+patch2_winged - number of observed winged aphids in patch 2 (initially empty patch)
+
+
+parameterisation_data_BRBR_LIER.csv
+
+initials - person recording the observation
+date - date of observation
+time - time of observation (UTC+01:00)
+replica - setup replica
+BRBR_wingless - number of observed wingless BRBR
+LIER_wingless - number of observed wingless LIER
+winged_total - number of observed winged aphids
+
+
+parameterisation_data_DIRA_dispersal.csv
+
+initials - person recording the observation
+date - date of observation
+time - time of observation (UTC+01:00)
+replica - setup replica
+initial_no_ptoids - initial number of DIRA
+patch1_ptoids - number of observed DIRA in patch 1 (initially populated patch)
+patch2_ptoids - number of observed DIRA in patch 2 (initially empty patch)
+t_day = number of days since start of experiment
+
+
+parameterisation_data_DIRA_emergence.csv
+
+date_setup - date of start of experiment
+date_emerged_count - date of emerged DIRA observed and counted
+aphid_species - aphid species used
+no_emerged - observed number of emerged DIRA
+
+
+parameterisation_data_DIRA_females.csv
+
+initials - person recording the observation
+date - date of observation
+time - time of observation (UTC+01:00)
+batch - batch number of collected DIRA
+no_ptoids - number of collected DIRA
+no_females - number of collected female DIRA
+no_males - number of collected male DIRA
+
+
+parameterisation_data_DIRA_function.csv & parameterisation_data_DIRA_parasitism.csv
+
+initials - person recording the observation
+date_setup - date of start of experiment
+date_mummies_count - date of DIRA mummies observed and counted
+aphid_species - aphid species used
+initial_no_aphids - initial number of aphids
+replica - setup replica
+no_mummies - observed number of DIRA mummies
+
+
+parameterisation_data_DIRA_mortality.csv
+
+initials - person recording the observation
+date - date of observation
+time - time of observation (UTC+01:00)
+replica - setup replica
+no_ptoids - observed number of live DIRA
+
+
+model_parameters.csv
+
+parameter - model parameter
+- r1 = intrinsic growth rate of BRBR
+- r2 = intrinsic growth rate of LIER
+- alpha11 = intraspecific competition of BRBR
+- alpha22 = intraspecific competition of LIER
+- alpha12 = interspecific competition of BRBR with LIER
+- alpha21 = interspecific competition of LIER with BRBR
+- e1 = emigration rate of BRBR
+- e2 = emigration rate of LIER
+- Ae1 = minimum population size for emigration of BRBR
+- Ae2 = minimum population size for emigration of LIER
+- beta1 = DIRA attack rate on BRBR
+- beta2 = DIRA attack rate on LIER
+- pmax = maximum number of parasitised aphids by DIRA
+- tau = time to emergence of DIRA
+- f = fraction of females of DIRA
+- lambda = lifespan of DIRA
+- eP = emigration rate of DIRA
+- Pe = minimum population size for emigration of DIRA
+value - value of parameter (if single value determined)
+CI_low - lower confidence interval of parameter (if confidence interval determined)
+CI_high - higher confidence interval of parameter (if confidence interval determined)
