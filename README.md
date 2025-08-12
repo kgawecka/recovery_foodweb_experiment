@@ -18,6 +18,7 @@ All code was created in R version 4.4.0.
 `parameterisation_data_X.csv` - parameterisation experiments data
 - `_BRBR` - single aphid species (_Brevicoryne brassicae_) response
 - `_LIER` - single aphid species (_Lipaphis erysimi_) response
+- `_BRBR_LIER` - two aphid species (_Brevicoryne brassicae_ and _Lipaphis erysimi_) response
 - `_DIRA_dispersal` - parasitoid (_Diaeretiella rapae_) dispersal
 - `_DIRA_emergence` - parasitoid (_Diaeretiella rapae_) emergence from mummies
 - `_DIRA_females` - parasitoid (_Diaeretiella rapae_) proportion of females

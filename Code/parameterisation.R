@@ -3,32 +3,30 @@ rm(list=ls())
 # load packages
 library(dplyr)
 library(ggplot2)
-library(readxl)
 library(tidyr)
 library(spatstat.geom)
+library(lubridate)
+library(ggpubr)
+
 
 # ONE APHID SPECIES ----
 # - EXPERIMENTAL DATA ANALYSIS ----
 
 # import experimental data
 
-data_BRBR <- read_excel("Data/parameterization_data.xlsx", sheet = "ONE APHID - BRBR") %>% 
-  dplyr::select("time", "replica", 
-                "patch1_wingless", "patch1_winged", 
-                "patch2_wingless", "patch2_winged") %>%
+data_BRBR <- read.csv("Data/parameterisation_data_BRBR.csv") %>% 
   mutate(replica=as.factor(replica))
 
-data_LIER <- read_excel("Data/parameterization_data.xlsx", sheet = "ONE APHID - LIER") %>% 
-  dplyr::select("time", "replica", 
-                "patch1_wingless", "patch1_winged", 
-                "patch2_wingless", "patch2_winged") %>%
+data_LIER <- read.csv("Data/parameterisation_data_LIER.csv") %>% 
   mutate(replica=as.factor(replica))
 
 
 # postprocess experimental data
 
 data_BRBR <- data_BRBR %>%
-  mutate(t_day = as.numeric(difftime(time, data_BRBR$time[1], units="days")) 
+  mutate(datetime = dmy_hms(paste(date, time)),
+         # combine date and time into one string
+         t_day = as.numeric(difftime(datetime, datetime[1], units="days")) 
          # time since start in days
   ) %>% 
   group_by(replica) %>%
@@ -44,7 +42,9 @@ data_BRBR <- data_BRBR %>%
   ungroup()
 
 data_LIER <- data_LIER %>%
-  mutate(t_day = as.numeric(difftime(time, data_BRBR$time[1], units="days")) 
+  mutate(datetime = dmy_hms(paste(date, time)),
+         # combine date and time into one string
+         t_day = as.numeric(difftime(datetime, datetime[1],, units="days")) 
          # time since start in days
   ) %>% 
   group_by(replica) %>%
@@ -96,22 +96,38 @@ alpha22_CI <- -as.numeric(confint(m_LIER, level=0.95)[2,]) # intraspecific compe
 
 # plot model prediction
 BRBR.predict <- cbind(na.omit(data_BRBR), predict(m_BRBR, interval='confidence'))
-ggplot(data=BRBR.predict, aes(x=A_t, y=(log(A_t1+E)-log(A_t))/dt)) +
+plotBB <- ggplot(data=BRBR.predict, aes(x=A_t, y=(log(A_t1+E)-log(A_t))/dt)) +
   geom_hline(yintercept=0) +
   geom_point(aes(col=replica)) +
   geom_line(aes(x=A_t, y=fit), col="black", size=1) +
   geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
   lims(x=c(0,NA)) +
-  ggtitle("BRBR")
+  scale_color_brewer(palette="Dark2") +
+  labs(x="population size", y="per capita growth rate", subtitle="BB") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
 
 LIER.predict <- cbind(na.omit(data_LIER), predict(m_LIER, interval='confidence'))
-ggplot(data=LIER.predict, aes(x=A_t, y=(log(A_t1+E)-log(A_t))/dt)) +
+plotLE <- ggplot(data=LIER.predict, aes(x=A_t, y=(log(A_t1+E)-log(A_t))/dt)) +
   geom_hline(yintercept=0) +
   geom_point(aes(col=replica)) +
   geom_line(aes(x=A_t, y=fit), col="black", size=1) +
   geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
   lims(x=c(0,NA)) +
-  ggtitle("LIER")
+  scale_color_brewer(palette="Dark2") +
+  labs(x="population size", y="per capita growth rate", subtitle="LE") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
+
+ggarrange(plotBB, plotLE, common.legend=TRUE, legend="bottom")
 
 
 # -- emigration (e_i) ----
@@ -183,6 +199,21 @@ ggplot(data=BRBR.predict, aes(x=A_Ae, y=E/dt)) +
   lims(x=c(0,NA)) +
   ggtitle("BRBR")
 
+plotBB <- ggplot(data=BRBR.predict, aes(x=A_t, y=E/dt)) +
+  geom_hline(yintercept=0) +
+  geom_point(aes(col=replica)) +
+  geom_line(aes(x=A_t, y=fit), col="black", size=1) +
+  geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
+  lims(x=c(0,NA)) +
+  scale_color_brewer(palette="Dark2") +
+  labs(x="population size", y="emigration rate", subtitle="BB") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
+
 LIER.predict <- cbind(filter(data_LIER, E_cumsum>0), predict(m_LIER, interval='confidence'))
 ggplot(data=LIER.predict, aes(x=A_Ae, y=E/dt)) +
   geom_hline(yintercept=0) +
@@ -190,6 +221,23 @@ ggplot(data=LIER.predict, aes(x=A_Ae, y=E/dt)) +
   geom_line(aes(x=A_Ae, y=fit), col="black", size=1) +
   geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
   ggtitle("LIER")
+
+plotLE <- ggplot(data=LIER.predict, aes(x=A_t, y=E/dt)) +
+  geom_hline(yintercept=0) +
+  geom_point(aes(col=replica)) +
+  geom_line(aes(x=A_t, y=fit), col="black", size=1) +
+  geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
+  lims(x=c(0,NA)) +
+  scale_color_brewer(palette="Dark2") +
+  labs(x="population size", y="emigration rate", subtitle="LE") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
+
+ggarrange(plotBB, plotLE, common.legend=TRUE, legend="bottom")
 
 
 # - MODEL PREDICTION ----
@@ -310,13 +358,14 @@ dt_CI_LIER_diff <- dt_CI_LIER %>%
 # - EXPERIMENTAL DATA ANALYSIS ----
 
 # import experimental data
-data_2aphids <- read_excel("Data/parameterization_data.xlsx", sheet = "TWO APHIDS")  %>% 
-  dplyr::select("time", "replica", "BRBR_wingless", "LIER_wingless") %>%
+data_2aphids <- read.csv("Data/parameterisation_data_BRBR_LIER.csv")  %>% 
   mutate(replica=as.factor(replica))
 
 # postprocess experimental data
 data_2aphids <- data_2aphids %>%
-  mutate(t_day = as.numeric(difftime(time, data_2aphids$time[1], units="days")), 
+  mutate(datetime = dmy_hms(paste(date, time)),
+         # combine date and time into one string
+         t_day = as.numeric(difftime(datetime, datetime[1],, units="days")) 
          # time since start in days
   ) %>% 
   group_by(replica) %>%
@@ -370,20 +419,36 @@ alpha21_CI <- as.numeric(confint(m_LIER, level=0.95)) # interspecific competitio
 
 # plot model prediction
 BRBR.predict <- cbind(na.omit(data_2aphids %>% select(replica, A2_t, Y1)), predict(m_BRBR, interval='confidence'))
-ggplot(data=BRBR.predict, aes(x=A2_t, y=Y1)) +
+plotBB <- ggplot(data=BRBR.predict, aes(x=A2_t, y=Y1)) +
   geom_hline(yintercept=0) +
   geom_point(aes(col=replica)) +
   geom_line(aes(x=A2_t, y=fit), col="black", size=1) +
   geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
-  ggtitle("BRBR")
+  scale_color_brewer(palette="Dark2") +
+  labs(x="LE population size", y="reduction in BB population size due to LE", subtitle="BB") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
 
 LIER.predict <- cbind(na.omit(data_2aphids %>% select(replica, A1_t, Y2)), predict(m_LIER, interval='confidence'))
-ggplot(data=LIER.predict, aes(x=A1_t, y=Y2)) +
+plotLE <- ggplot(data=LIER.predict, aes(x=A1_t, y=Y2)) +
   geom_hline(yintercept=0) +
   geom_point(aes(col=replica)) +
   geom_line(aes(x=A1_t, y=fit), col="black", size=1) +
   geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
-  ggtitle("LIER")
+  scale_color_brewer(palette="Dark2") +
+  labs(x="BB population size", y="reduction in LE population size due to BB", subtitle="LE") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
+
+ggarrange(plotBB, plotLE, common.legend=TRUE, legend="bottom")
 
 
 # - MODEL PREDICTION ----
@@ -674,8 +739,7 @@ ggarrange(p1,p2,p3,p4, nrow=2, ncol=2, common.legend=TRUE, legend="bottom")
 # -- maximum parasitization ----
 
 # import experimental data
-data_ptoid_max_parasit <- read_excel("Data/parameterization_data.xlsx", sheet = "PTOID - MAX PARASIT") %>%
-  dplyr::select("aphid_species", "replica", "no_mummies") %>%
+data_ptoid_max_parasit <- read.csv("Data/parameterisation_data_DIRA_parasitism.csv") %>% 
   mutate(replica=as.factor(replica))
 
 # plot experimental data
@@ -690,8 +754,7 @@ pmax <- mean(data_ptoid_max_parasit$no_mummies)
 # -- functional response ----
 
 # import experimental data
-data_ptoid_function <- read_excel("Data/parameterization_data.xlsx", sheet = "PTOID - FUNCTION") %>%   
-  dplyr::select("aphid_species", "initial_no_aphids", "replica", "no_mummies") %>%   
+data_ptoid_function <- read.csv("Data/parameterisation_data_DIRA_function.csv") %>%  
   mutate(replica=as.factor(replica))
 
 # plot experimental data
@@ -717,29 +780,45 @@ beta2_CI <- as.numeric(confint(m_ptoid_LIER, level=0.95)) # parasitization rate 
 
 # plot model prediction
 ptoid.predict <- cbind(filter(data_ptoid_function, aphid_species=="BRBR"), predict(m_ptoid_BRBR, interval='confidence'))
-ggplot(data=ptoid.predict, aes(x=initial_no_aphids, y=no_mummies)) +
+plotBB <- ggplot(data=ptoid.predict, aes(x=initial_no_aphids, y=no_mummies)) +
   geom_hline(yintercept=0) +
   geom_jitter(aes(col=as.factor(replica)), width=0.1, height=0.1) + 
   geom_line(aes(x=initial_no_aphids, y=fit), col="black", size=1) +
   geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
-  ggtitle("BRBR")
+  scale_color_brewer(palette="Dark2") +
+  labs(x="number of aphids", y="number of mummies", subtitle="BB") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
 
 ptoid.predict <- cbind(filter(data_ptoid_function, aphid_species=="LIER"), predict(m_ptoid_LIER, interval='confidence'))
-ggplot(data=ptoid.predict, aes(x=initial_no_aphids, y=no_mummies)) +
+plotLE <- ggplot(data=ptoid.predict, aes(x=initial_no_aphids, y=no_mummies)) +
   geom_hline(yintercept=0) +
   geom_jitter(aes(col=as.factor(replica)), width=0.1, height=0.1) + 
   geom_line(aes(x=initial_no_aphids, y=fit), col="black", size=1) +
   geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
-  ggtitle("LIER")
+  scale_color_brewer(palette="Dark2") +
+  labs(x="number of aphids", y="number of mummies", subtitle="LE") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
+
+ggarrange(plotBB, plotLE, common.legend=TRUE, legend="bottom")
 
 
 # -- time to emergence ----
 
 # import experimental data
-data_ptoid_emergence <- read_excel("Data/parameterization_data.xlsx", sheet = "PTOID - EMERGENCE") %>%
-  dplyr::select("date_setup", "date_emerged_count", "aphid_species", "no_emerged") %>%
-  mutate(date_setup=as.Date(date_setup), date_emerged_count=as.Date(date_emerged_count)) %>%
-  mutate(tau = as.numeric(date_emerged_count-date_setup),
+data_ptoid_emergence <- read.csv("Data/parameterisation_data_DIRA_emergence.csv") %>%
+  mutate(date_setup=as.Date(date_setup, format="%d/%m/%Y"), 
+         date_emerged_count=as.Date(date_emerged_count, format="%d/%m/%Y"),
+         tau = as.numeric(date_emerged_count-date_setup)
          # temporal delay between parasitoid attack and new parasitoid emergence (days)
   ) %>% 
   filter(no_emerged>0)
@@ -756,8 +835,7 @@ tau <- weighted.mean(data_ptoid_emergence$tau, data_ptoid_emergence$no_emerged)
 # -- fraction of females ----
 
 # import experimental data
-data_ptoid_females <- read_excel("Data/parameterization_data.xlsx", sheet = "PTOID - FEMALES") %>%
-  dplyr::select("date", "batch", "no_ptoids", "no_females") %>%
+data_ptoid_females <- read.csv("Data/parameterisation_data_DIRA_females.csv") %>% 
   mutate(date=as.Date(date), batch=as.factor(batch))
 
 # fraction of females
@@ -767,9 +845,9 @@ f <- sum(data_ptoid_females$no_females) / sum(data_ptoid_females$no_ptoids)
 # -- mortality ----
 
 # import experimental data
-data_ptoid_mortality <- read_excel("Data/parameterization_data.xlsx", sheet = "PTOID - MORTALITY")  %>% 
-  dplyr::select("date", "replica", "no_ptoids") %>%
-  mutate(date=as.Date(date), replica=as.factor(replica))
+data_ptoid_mortality <- read.csv("Data/parameterisation_data_DIRA_mortality.csv") %>% 
+  mutate(date=as.Date(date, format="%d/%m/%Y"), 
+         replica=as.factor(replica))
 data_ptoid_mortality <- data_ptoid_mortality %>%
   mutate(age = as.numeric(date-data_ptoid_mortality$date[1]+1)
          # ptoid age (days); note: 1 day old at setup
@@ -791,9 +869,9 @@ lambda <- weighted.mean(data_ptoid_mortality$age, data_ptoid_mortality$no_dead)
 # -- dispersal ----
 
 # import experimental data
-data_ptoid_dispersal <- read_excel("Data/parameterization_data.xlsx", sheet = "PTOID - DISPERSAL")  %>% 
-  dplyr::select("date", "initial_no_ptoids", "replica", "patch1_ptoids", "patch2_ptoids") %>%
-  mutate(date=as.Date(date), replica=as.factor(replica))
+data_ptoid_dispersal <- read.csv("Data/parameterisation_data_DIRA_dispersal.csv") %>% 
+  mutate(date=as.Date(date, format="%d/%m/%Y"), 
+         replica=as.factor(replica))
 data_ptoid_dispersal <- data_ptoid_dispersal %>%
   mutate(t_day = as.numeric(date-data_ptoid_dispersal$date[1]),
          # time since start in days
@@ -844,6 +922,21 @@ ggplot(data=ptoid.predict, aes(x=P_Pe, y=E)) +
   geom_line(aes(x=P_Pe, y=fit), col="black", size=1) +
   geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
   labs(col="t_day")
+
+ggplot(data=ptoid.predict, aes(x=P, y=E)) +
+  geom_hline(yintercept=0) +
+  geom_jitter(width=0.1, height=0.1) + 
+  geom_line(aes(x=P, y=fit), col="black", size=1) +
+  geom_ribbon(aes(ymin=lwr,ymax=upr), alpha=0.3) +
+  lims(x=c(0,NA)) +
+  scale_color_brewer(palette="Dark2") +
+  labs(x="population size", y="emigration rate") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        strip.background=element_blank(), 
+        axis.text=element_text(size=8), axis.title=element_text(size=8),
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        plot.subtitle=element_text(size=10), legend.position="bottom")
 
 
 # SUMMARY OF PARAMETERS ----

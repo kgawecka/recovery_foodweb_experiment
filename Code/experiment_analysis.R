@@ -3,11 +3,11 @@ rm(list=ls())
 # load packages
 library(dplyr)
 library(ggplot2)
-library(readxl)
 library(tidyr)
 library(performance)
 library(marginaleffects)
 library(ggpubr)
+library(lubridate)
 
 # define palettes
 palette_landscape <- c("#4ea33a80","#357029ff","#307ecd80","#1d4d7cff")
@@ -25,8 +25,7 @@ width_fullpage = 173
 # DATA IMPORT ----
 
 # import data
-data <- read_excel("Data/experiment_data.xlsx") %>% 
-  dplyr::select(-c("initials", "date"))
+data <- read.csv("Data/experiment_data.csv")
 
 # calculate time since start
 data <- data %>%
@@ -40,19 +39,20 @@ data <- data %>%
          #                             1P = 1-patch-peripheral
          replica=as.factor(replica)) %>%
   group_by(community, landscape, replica) %>%
-  mutate(t_day = as.numeric(difftime(time, dplyr::first(time), units="days")) 
+  mutate(datetime = dmy_hms(paste(date, time)),
+         # combine date and time into one string
+         t_day = as.numeric(difftime(datetime, dplyr::first(datetime), units="days")) 
          # time since start in days
   ) %>% 
-  ungroup() %>%
-  dplyr::select(c(15,2:14))
+  ungroup()
 
 # transform into longer dataframe, remove landscape "5" and rename insects
 data_pop <- data %>%
-  pivot_longer(cols=c(5:14), names_to="patch_aphid", values_to="count") %>%
+  pivot_longer(cols=c(7:16), names_to="patch_aphid", values_to="count") %>%
   mutate(patch=as.factor(sub("_.*", "", patch_aphid)),
          aphid=as.factor(sub(".*_", "", patch_aphid))) %>%
   dplyr::select(-c("patch_aphid")) %>%
-  dplyr::select(c(1:4,6,7,5)) %>%
+  dplyr::select(community, landscape, replica, t_day, count, patch, aphid) %>%
   filter(landscape!="5") %>%
   droplevels() %>%
   mutate(aphid=as.factor(ifelse(aphid=="BRBR", "BB", "LE")), 
@@ -396,6 +396,33 @@ ggplot(data=filter(data_pop, aphid=="LE") %>% na.omit(),
   coord_cartesian(x=c(0,NA), y=c(0,NA)) +
   scale_color_manual(values=palette_community[c(2,3)]) +
   labs(x="time (day)", y="population size") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
+        strip.text=element_text(size=8), 
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        legend.position="bottom")
+
+df_foodweb = data_pop  %>%
+  mutate(count=ifelse(is.na(count),0,count))
+df_foodweb = df_foodweb %>%
+  left_join(., df_foodweb %>% filter(t_day==0) %>% 
+              mutate(patch_type=ifelse(count==0,"empty","populated")) %>%
+              select(landscape, community, aphid, patch, replica, patch_type)) %>%
+  mutate(aphids_present=ifelse(count>0 & aphid=="BB",1,
+                               ifelse(count>0 & aphid=="LE",2,0))) %>%
+  group_by(community, landscape, replica, patch, patch_type, t_day) %>%
+  summarise(total=sum(aphids_present)) %>%
+  mutate(aphids_present=ifelse(total==1,"BB only",ifelse(total==2,"LE only",ifelse(total==3,"BB&LE","none"))))
+df_foodweb$aphids_present = factor(df_foodweb$aphids_present, levels=c("none","BB only","LE only","BB&LE"))
+
+ggplot(data=filter(df_foodweb, patch_type=="empty"), 
+       aes(x=t_day, y=aphids_present, group=interaction(patch,replica), col=aphids_present)) +
+  geom_jitter(alpha=0.5) +
+  facet_grid(community~landscape, scales="free_y") +
+  scale_color_brewer(palette="Dark2") +
+  labs(x="time (day)", y="aphid species present", col="aphid species present") +
+  guides(colour=guide_legend(override.aes=list(alpha=1))) +
   theme(panel.background=element_rect(fill="white", colour="grey"),
         panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
         axis.title=element_text(size=8), axis.text=element_text(size=6), 
