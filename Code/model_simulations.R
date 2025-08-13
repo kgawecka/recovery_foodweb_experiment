@@ -543,7 +543,7 @@ f_reps = function(species_parameters, N0, n_aphid, n_ptoid, n_hyper,
 }
 
 # plotting functions
-plot_model_prediction_partfig4 = function(data_test, data_test_exp, df_comms){
+plot_model_prediction_partfig_1 = function(data_test, data_test_exp, df_comms){
   
   # linear anova, recovery log(x+1) transformed (to deal with 0-values)
   anova_m2 = lm(log1p(recovery) ~ landscape_patches*landscape_type*community, data=data_test)
@@ -586,6 +586,9 @@ plot_model_prediction_partfig4 = function(data_test, data_test_exp, df_comms){
                             levels=c("number of communities","location of communities","community food web"))
   preds_exp[is.na(preds_exp)] = 0
   
+  preds_all = rbind(preds %>% mutate(data_type="simulation"),
+                    preds_exp %>% mutate(data_type="experiment"))
+  
   # transform data for plotting
   data_plot = rbind(data_test %>% select(landscape_patches,recovery,scale) %>%
                       mutate(effect="number of communities") %>%
@@ -619,6 +622,107 @@ plot_model_prediction_partfig4 = function(data_test, data_test_exp, df_comms){
   data_plot_exp = data_plot_exp %>%
     mutate(treatment=as.factor(fct_reorder(treatment, n_species+0.01*trophic_levels)))
   
+  data_plot_all = rbind(data_plot %>% mutate(data_type="simulation"),
+                        data_plot_exp %>% mutate(data_type="experiment"))
+  
+  # plot
+  if(unique(data_test$scale)=="empty patches"){
+    p = ggplot(data=NULL, aes(x=treatment)) +
+      geom_point(data=data_plot_all, aes(y=log1p(recovery), col=data_type, alpha=data_type), 
+                 position=position_jitterdodge(jitter.width=0.1, dodge.width=0.4), size=0.5) +
+      geom_errorbar(data=preds_all, aes(ymin=conf.low, ymax=conf.high, col=data_type), 
+                    position=position_dodge(width=0.4), width=0) +
+      geom_point(data=preds_all, aes(y=estimate, shape=sig, col=data_type), 
+                 position=position_dodge(width=0.4), size=2, fill="white") +
+      facet_grid(scale~effect, scales="free_x", space="free_x",
+                 labeller=labeller(effect=label_wrap_gen(width=12))) +
+      coord_cartesian(ylim=c(log1p(min(data_plot$recovery)),log1p(max(data_plot$recovery)))) +
+      scale_color_manual(name=NULL, 
+                         values=c("simulation"=col_blue_dark, "experiment"=col_orange)) +
+      scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
+      scale_alpha_manual(values=c("simulation"=0.05, "experiment"=0.3), guide="none") +
+      scale_x_discrete(labels=c("1"="1\n ","4"="4\n ", 
+                                "central"="central\n ","peripheral"="peripheral\n ", 
+                                "1A"=" \n1A","2A"=" \n2A","2A-1P"="1P\n2A")) +
+      labs(y="ln(recovery credit +1)") +
+      theme(panel.background=element_rect(fill="white", colour="grey"),
+            panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+            axis.text.x=element_text(size=8), axis.text.y=element_text(size=6), 
+            axis.title=element_text(size=8), axis.title.x=element_blank(),
+            strip.background=element_blank(), 
+            strip.text=element_text(size=8),
+            legend.position="bottom", legend.text=element_text(size=8), legend.key=element_blank())
+  }else{
+    p = ggplot(data=NULL, aes(x=treatment)) +
+      geom_point(data=data_plot_all, aes(y=log1p(recovery), col=data_type, alpha=data_type), 
+                 position=position_jitterdodge(jitter.width=0.1, dodge.width=0.4), size=0.5) +
+      geom_errorbar(data=preds_all, aes(ymin=conf.low, ymax=conf.high, col=data_type), 
+                    position=position_dodge(width=0.4), width=0) +
+      geom_point(data=preds_all, aes(y=estimate, shape=sig, col=data_type), 
+                 position=position_dodge(width=0.4), size=2, fill="white") +
+      facet_grid(scale~effect, scales="free_x", space="free_x",
+                 labeller=labeller(effect=label_wrap_gen(width=12))) +
+      coord_cartesian(ylim=c(log1p(min(data_plot$recovery)),log1p(max(data_plot$recovery)))) +
+      scale_color_manual(name=NULL, 
+                         values=c("simulation"=col_blue_dark, "experiment"=col_orange)) +
+      scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
+      scale_alpha_manual(values=c("simulation"=0.05, "experiment"=0.3), guide="none") +
+      scale_x_discrete(labels=c("1"="1\n ","4"="4\n ", 
+                                "central"="central\n ","peripheral"="peripheral\n ", 
+                                "1A"=" \n1A","2A"=" \n2A","2A-1P"="1P\n2A")) +
+      labs(y="ln(recovery credit +1)") +
+      theme(panel.background=element_rect(fill="white", colour="grey"),
+            panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+            axis.text.x=element_text(size=8), axis.text.y=element_text(size=6), 
+            axis.title=element_text(size=8), axis.title.x=element_blank(),
+            strip.background=element_blank(), 
+            strip.text.x=element_blank(), strip.text.y=element_text(size=8),
+            legend.position="bottom", legend.text=element_text(size=8), legend.key=element_blank())
+  }
+  
+  return(p)
+}
+plot_model_prediction_partfig_2 = function(data_test, df_comms){
+  
+  # linear anova, recovery log(x+1) transformed (to deal with 0-values)
+  anova_m2 = lm(log1p(recovery) ~ landscape_patches*landscape_type*community, data=data_test)
+  
+  # predictions
+  preds = rbind(avg_predictions(anova_m2, variables="landscape_patches", by="landscape_patches") %>%
+                  mutate(sig=ifelse(anova(anova_m2)[1,5]<0.05,"sig","NS"),
+                         effect="number of communities") %>%
+                  rename(treatment="landscape_patches"),
+                avg_predictions(anova_m2, variables="landscape_type", by="landscape_type") %>%
+                  mutate(sig=ifelse(anova(anova_m2)[2,5]<0.05,"sig","NS"),
+                         effect="location of communities") %>%
+                  rename(treatment="landscape_type"),
+                avg_predictions(anova_m2, variables="community", by="community") %>%
+                  mutate(sig=ifelse(anova(anova_m2)[3,5]<0.05,"sig","NS"),
+                         effect="community food web") %>%
+                  rename(treatment="community")) %>%
+    left_join(., df_comms, by=c("treatment"="community"))
+  preds$sig = factor(preds$sig, levels=c("NS", "sig"))
+  preds$effect = factor(preds$effect, 
+                        levels=c("number of communities","location of communities","community food web"))
+  preds[is.na(preds)] = 0
+  
+  # transform data for plotting
+  data_plot = rbind(data_test %>% select(landscape_patches,recovery,scale) %>%
+                      mutate(effect="number of communities") %>%
+                      rename(treatment="landscape_patches"),
+                    data_test %>% select(landscape_type,recovery,scale) %>%
+                      mutate(effect="location of communities") %>%
+                      rename(treatment="landscape_type"),
+                    data_test %>% select(community,recovery,scale) %>%
+                      mutate(effect="community food web") %>%
+                      rename(treatment="community")) %>%
+    left_join(., df_comms, by=c("treatment"="community"))
+  data_plot$effect = factor(data_plot$effect, 
+                            levels=c("number of communities","location of communities","community food web"))
+  data_plot[is.na(data_plot)] = 0
+  data_plot = data_plot %>%
+    mutate(treatment=as.factor(fct_reorder(treatment, n_species+0.01*trophic_levels)))
+  
   groups_to_split = c("1A","1A-1P","1A-1P-1H","2A-1P-1H","3A-1P-1H")
   x_positions = as.numeric(factor(groups_to_split, levels=levels(data_plot$treatment))) + 0.5-4
   vline_data = data.frame(xintercept=x_positions,
@@ -627,27 +731,19 @@ plot_model_prediction_partfig4 = function(data_test, data_test_exp, df_comms){
                              levels=c("number of communities","location of communities","community food web"))
   
   # plot
-  
   if(unique(data_test$scale)=="empty patches"){
     p = ggplot(data=NULL, aes(x=treatment)) +
-      geom_point(data=data_plot, aes(y=log1p(recovery), col="simulation"), 
-                 position=position_jitter(width=0.1, height=0), alpha=0.05, size=0.5) +
-      geom_errorbar(data=preds, aes(ymin=conf.low, ymax=conf.high, col="simulation"), 
-                    width=0) +
-      geom_point(data=preds, aes(y=estimate, shape=sig, col="simulation"), 
-                 size=2, fill="white") +
-      geom_point(data=data_plot_exp, aes(y=log1p(recovery), col="experiment"), 
-                 position=position_jitter(width=0.1, height=0), alpha=0.5, size=0.5) +
-      geom_errorbar(data=preds_exp, aes(ymin=conf.low, ymax=conf.high, col="experiment"), 
-                    width=0) +
-      geom_point(data=preds_exp, aes(y=estimate, shape=sig, col="experiment"),
-                 size=2, fill="white") +
+      geom_point(data=data_plot, aes(y=log1p(recovery)), 
+                 position=position_jitter(width=0.1, height=0), 
+                 size=0.5, alpha=0.05, col=col_blue_dark) +
+      geom_errorbar(data=preds, aes(ymin=conf.low, ymax=conf.high), 
+                    width=0, col=col_blue_dark) +
+      geom_point(data=preds, aes(y=estimate, shape=sig), 
+                 size=2, fill="white", col=col_blue_dark) +
       geom_vline(data=vline_data, aes(xintercept=xintercept), col="grey", linetype="dashed") +
       facet_grid(scale~effect, scales="free_x", space="free_x",
                  labeller=labeller(effect=label_wrap_gen(width=12))) +
       coord_cartesian(ylim=c(log1p(min(data_plot$recovery)),log1p(max(data_plot$recovery)))) +
-      scale_color_manual(name=NULL, 
-                         values=c("simulation"=col_blue_dark, "experiment"=col_orange)) +
       scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
       scale_x_discrete(labels=c("1"="1\n \n ","4"="4\n \n ", 
                                 "central"="central\n \n ","peripheral"=" \nperipheral\n ", 
@@ -668,24 +764,17 @@ plot_model_prediction_partfig4 = function(data_test, data_test_exp, df_comms){
             legend.position="bottom", legend.text=element_text(size=8), legend.key=element_blank())
   }else{
     p = ggplot(data=NULL, aes(x=treatment)) +
-      geom_point(data=data_plot, aes(y=log1p(recovery), col="simulation"), 
-                 position=position_jitter(width=0.1, height=0), alpha=0.05, size=0.5) +
-      geom_errorbar(data=preds, aes(ymin=conf.low, ymax=conf.high, col="simulation"), 
-                    width=0) +
-      geom_point(data=preds, aes(y=estimate, shape=sig, col="simulation"), 
-                 size=2, fill="white") +
-      geom_point(data=data_plot_exp, aes(y=log1p(recovery), col="experiment"), 
-                 position=position_jitter(width=0.1, height=0), alpha=0.5, size=0.5) +
-      geom_errorbar(data=preds_exp, aes(ymin=conf.low, ymax=conf.high, col="experiment"), 
-                    width=0) +
-      geom_point(data=preds_exp, aes(y=estimate, shape=sig, col="experiment"),
-                 size=2, fill="white") +
+      geom_point(data=data_plot, aes(y=log1p(recovery)), 
+                 position=position_jitter(width=0.1, height=0), 
+                 size=0.5, alpha=0.05, col=col_blue_dark) +
+      geom_errorbar(data=preds, aes(ymin=conf.low, ymax=conf.high), 
+                    width=0, col=col_blue_dark) +
+      geom_point(data=preds, aes(y=estimate, shape=sig), 
+                 size=2, fill="white", col=col_blue_dark) +
       geom_vline(data=vline_data, aes(xintercept=xintercept), col="grey", linetype="dashed") +
       facet_grid(scale~effect, scales="free_x", space="free_x",
                  labeller=labeller(effect=label_wrap_gen(width=12))) +
       coord_cartesian(ylim=c(log1p(min(data_plot$recovery)),log1p(max(data_plot$recovery)))) +
-      scale_color_manual(name=NULL, 
-                         values=c("simulation"=col_blue_dark, "experiment"=col_orange)) +
       scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
       scale_x_discrete(labels=c("1"="1\n \n ","4"="4\n \n ", 
                                 "central"="central\n \n ","peripheral"=" \nperipheral\n ", 
@@ -708,8 +797,88 @@ plot_model_prediction_partfig4 = function(data_test, data_test_exp, df_comms){
   
   return(p)
 }
-plot_model_prediction_fullfig4 = function(data_pop, data_metapop, data_pop_exp, data_metapop_exp,
-                                          df_comms, species_plot){
+plot_model_prediction_partfig_3 = function(data_test, df_comms){
+  
+  # linear anova, recovery log(x+1) transformed (to deal with 0-values)
+  anova_m2 = lm(log1p(recovery) ~ landscape_patches*landscape_type*community, data=data_test)
+  
+  # predictions
+  preds = rbind(avg_predictions(anova_m2, variables="landscape_patches", by="landscape_patches") %>%
+                  mutate(sig=ifelse(anova(anova_m2)[1,5]<0.05,"sig","NS"),
+                         effect="number of communities") %>%
+                  rename(treatment="landscape_patches"),
+                avg_predictions(anova_m2, variables="landscape_type", by="landscape_type") %>%
+                  mutate(sig=ifelse(anova(anova_m2)[2,5]<0.05,"sig","NS"),
+                         effect="location of communities") %>%
+                  rename(treatment="landscape_type")) %>%
+    left_join(., df_comms, by=c("treatment"="community"))
+  preds$sig = factor(preds$sig, levels=c("NS", "sig"))
+  preds$effect = factor(preds$effect, 
+                        levels=c("number of communities","location of communities"))
+  preds[is.na(preds)] = 0
+  
+  # transform data for plotting
+  data_plot = rbind(data_test %>% select(landscape_patches,recovery,scale) %>%
+                      mutate(effect="number of communities") %>%
+                      rename(treatment="landscape_patches"),
+                    data_test %>% select(landscape_type,recovery,scale) %>%
+                      mutate(effect="location of communities") %>%
+                      rename(treatment="landscape_type")) %>%
+    left_join(., df_comms, by=c("treatment"="community"))
+  data_plot$effect = factor(data_plot$effect, 
+                            levels=c("number of communities","location of communities"))
+  data_plot[is.na(data_plot)] = 0
+  
+  # plot
+  if(unique(data_test$scale)=="empty patches"){
+    p = ggplot(data=NULL, aes(x=treatment)) +
+      geom_point(data=data_plot, aes(y=log1p(recovery)), 
+                 position=position_jitter(width=0.1, height=0), 
+                 size=0.5, alpha=0.05, col=col_blue_dark) +
+      geom_errorbar(data=preds, aes(ymin=conf.low, ymax=conf.high), 
+                    width=0, col=col_blue_dark) +
+      geom_point(data=preds, aes(y=estimate, shape=sig), 
+                 size=2, fill="white", col=col_blue_dark) +
+      facet_grid(scale~effect, scales="free_x", space="free_x",
+                 labeller=labeller(effect=label_wrap_gen(width=12))) +
+      coord_cartesian(ylim=c(log1p(min(data_plot$recovery)),log1p(max(data_plot$recovery)))) +
+      scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
+      labs(y="ln(recovery credit +1)") +
+      theme(panel.background=element_rect(fill="white", colour="grey"),
+            panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+            axis.text.x=element_text(size=8), axis.text.y=element_text(size=6), 
+            axis.title=element_text(size=8), axis.title.x=element_blank(),
+            strip.background=element_blank(), 
+            strip.text=element_text(size=8),
+            legend.position="bottom", legend.text=element_text(size=8), legend.key=element_blank())
+  }else{
+    p = ggplot(data=NULL, aes(x=treatment)) +
+      geom_point(data=data_plot, aes(y=log1p(recovery)), 
+                 position=position_jitter(width=0.1, height=0), 
+                 size=0.5, alpha=0.05, col=col_blue_dark) +
+      geom_errorbar(data=preds, aes(ymin=conf.low, ymax=conf.high), 
+                    width=0, col=col_blue_dark) +
+      geom_point(data=preds, aes(y=estimate, shape=sig), 
+                 size=2, fill="white", col=col_blue_dark) +
+      facet_grid(scale~effect, scales="free_x", space="free_x",
+                 labeller=labeller(effect=label_wrap_gen(width=12))) +
+      coord_cartesian(ylim=c(log1p(min(data_plot$recovery)),log1p(max(data_plot$recovery)))) +
+      scale_shape_manual(values=c(21,19), drop=FALSE, guide="none") +
+      labs(y="ln(recovery credit +1)") +
+      theme(panel.background=element_rect(fill="white", colour="grey"),
+            panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+            axis.text.x=element_text(size=8), axis.text.y=element_text(size=6), 
+            axis.title=element_text(size=8), axis.title.x=element_blank(),
+            strip.background=element_blank(), 
+            strip.text.x=element_blank(), strip.text.y=element_text(size=8),
+            legend.position="bottom", legend.text=element_text(size=8), legend.key=element_blank())
+  }
+  
+  return(p)
+}
+
+plot_model_prediction_fullfig_1 = function(data_pop, data_metapop, data_pop_exp, data_metapop_exp,
+                                           df_comms, species_plot){
   
   aphid_plot = ifelse(species_plot=="A1", "BB", "LE")
   
@@ -730,7 +899,7 @@ plot_model_prediction_fullfig4 = function(data_pop, data_metapop, data_pop_exp, 
     mutate(scale="empty patches")
   
   # plot
-  plot_empty = plot_model_prediction_partfig4(data_test, data_test_exp, df_comms)
+  plot_empty = plot_model_prediction_partfig_1(data_test, data_test_exp, df_comms)
   
   
   # POPULATED PATCHES
@@ -750,7 +919,7 @@ plot_model_prediction_fullfig4 = function(data_pop, data_metapop, data_pop_exp, 
     mutate(scale="populated patches")
   
   # plot
-  plot_populated = plot_model_prediction_partfig4(data_test, data_test_exp, df_comms)
+  plot_populated = plot_model_prediction_partfig_1(data_test, data_test_exp, df_comms)
   
   
   # METAPOPULATION
@@ -764,7 +933,7 @@ plot_model_prediction_fullfig4 = function(data_pop, data_metapop, data_pop_exp, 
     mutate(scale="metapopulation")
   
   # plot
-  plot_meta = plot_model_prediction_partfig4(data_test, data_test_exp, df_comms)
+  plot_meta = plot_model_prediction_partfig_1(data_test, data_test_exp, df_comms)
   
   # combine plots
   plot_out = ggarrange(plot_empty, plot_populated, plot_meta,
@@ -773,6 +942,352 @@ plot_model_prediction_fullfig4 = function(data_pop, data_metapop, data_pop_exp, 
   
   return(plot_out)
 }
+plot_model_prediction_fullfig_2 = function(data_pop, data_metapop, 
+                                           df_comms, species_plot){
+  
+  # EMPTY PATCHES
+  
+  # average across equivalent patches
+  data_test = data_pop %>%
+    filter(patch_type=="empty", species==species_plot) %>%
+    group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+    summarise(recovery=mean(recovery)) %>%
+    ungroup() %>%
+    mutate(scale="empty patches")
+  
+  # plot
+  plot_empty = plot_model_prediction_partfig_2(data_test, df_comms)
+  
+  
+  # POPULATED PATCHES
+  
+  # average across equivalent patches
+  data_test = data_pop %>%
+    filter(patch_type=="populated", species==species_plot) %>%
+    group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+    summarise(recovery=mean(recovery)) %>%
+    ungroup() %>%
+    mutate(scale="populated patches")
+  
+  # plot
+  plot_populated = plot_model_prediction_partfig_2(data_test, df_comms)
+  
+  
+  # METAPOPULATION
+  
+  # subset data for analysis
+  data_test = data_metapop %>%
+    filter(species==species_plot) %>%
+    mutate(scale="metapopulation")
+  
+  # plot
+  plot_meta = plot_model_prediction_partfig_2(data_test, df_comms)
+  
+  # combine plots
+  plot_out = ggarrange(plot_empty, plot_populated, plot_meta,
+                       nrow=3, labels=c("A","B","C"), 
+                       common.legend=TRUE, legend="bottom", font.label=list(size=10))
+  
+  return(plot_out)
+}
+
+
+# SIMULATIONS - experiment ----
+
+# landscape adjacency matrix
+M_land = matrix(c(0,1,1,1,1,
+                  1,0,0,0,0,
+                  1,0,0,0,0,
+                  1,0,0,0,0,
+                  1,0,0,0,0), 5,5)
+
+# landscape size
+n_patches = nrow(M_land)
+
+# patch states (initial communities)
+patch_states = rbind(c(1,0,0,0,0), # 1C
+                     c(0,1,0,0,0), # 1P
+                     c(1,1,1,1,0), # 4C
+                     c(0,1,1,1,1)) # 4P
+
+# dataframe with communities for simulations
+df_comms = data.frame(community=c("1A","2A","2A-1P"),
+                      aphids=c(1,2,2),
+                      ptoids=c(0,0,1),
+                      hypers=c(0,0,0)) %>%
+  mutate(n_species=aphids+ptoids+hypers,
+         trophic_levels=ifelse(hypers==0,ifelse(ptoids==0,1,2),3))
+
+# run simulations
+for(i in 1:nrow(df_comms)){
+  
+  n_aphid = df_comms$aphids[i]
+  n_ptoid = df_comms$ptoids[i]
+  n_hyper = df_comms$hypers[i]
+  
+  df_sim = rbind(f_reps(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                        M_land, patch_state=patch_states[1,], dt, tmax, n_rep) %>% 
+                   mutate(landscape_patches=1, landscape_type="central"),
+                 f_reps(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                        M_land, patch_state=patch_states[2,], dt, tmax, n_rep) %>% 
+                   mutate(landscape_patches=1, landscape_type="peripheral"),
+                 f_reps(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                        M_land, patch_state=patch_states[3,], dt, tmax, n_rep) %>% 
+                   mutate(landscape_patches=4, landscape_type="central"),
+                 f_reps(species_parameters, N0, n_aphid, n_ptoid, n_hyper, 
+                        M_land, patch_state=patch_states[4,], dt, tmax, n_rep) %>% 
+                   mutate(landscape_patches=4, landscape_type="peripheral")) %>%
+    mutate(community=df_comms$community[i])
+  
+  write.csv(df_sim, paste0("Output/out_",df_comms$community[i],"_",n_patches,".csv"), row.names = FALSE)
+}
+
+
+# POSTPROCESSING - experiment ----
+
+# import experimental results
+df_RC_pop_exp = read.csv("Output/data_recovery_pop_exp.csv")
+df_RC_metapop_exp = read.csv("Output/data_recovery_metapop_exp.csv")
+
+# create empty dataframe
+df_pop = data.frame(t=integer(),
+                    patch=integer(),
+                    species=character(),
+                    population_size=double(),
+                    dN_comm=double(),
+                    dN_disp=double(),
+                    replica=integer(),
+                    landscape_patches=integer(),
+                    landscape_type=character(),
+                    community=character())
+# import and combine results
+for(i in 1:nrow(df_comms)){
+  df_pop = rbind(df_pop,
+                 fread(paste0("Output/out_",df_comms$community[i],"_",n_patches,".csv")))
+}
+df_pop = df_pop %>%
+  mutate(
+    patch=paste0("patch",patch),
+    landscape_patches=as.factor(landscape_patches),
+    landscape_type=as.factor(landscape_type),
+    species=as.factor(species),
+    community=as.factor(community),
+    landscape=ifelse(landscape_type=="central", paste0(landscape_patches,"C"), paste0(landscape_patches,"P")))
+
+df_metapop = df_pop %>%
+  group_by(replica, t, landscape_patches, landscape_type, species, community, landscape) %>%
+  summarise(metapopulation_size=sum(population_size)) %>%
+  ungroup()
+
+df_RC_pop = df_pop %>%
+  group_by(replica, patch, landscape_patches, landscape_type, species, community) %>%
+  mutate(A_diff=(population_size+lead(population_size))/2*dt,
+         A_dN_comm=(dN_comm+lead(dN_comm))/2*dt,
+         A_dN_disp=(dN_disp+lead(dN_disp))/2*dt) %>%
+  summarise(A_diff=sum(A_diff,na.rm=TRUE),
+            A_dN_comm=sum(A_dN_comm,na.rm=TRUE),
+            A_dN_disp=sum(A_dN_disp,na.rm=TRUE)) %>%
+  left_join(., df_pop %>% filter(t==0) %>% select(-t, -dN_comm, -dN_disp) %>%
+              rename(pop_t0=population_size)) %>%
+  mutate(recovery=A_diff,
+         A_diff=A_diff-pop_t0*tmax) %>%
+  ungroup() %>%
+  mutate(patch_type=ifelse(pop_t0!=0, "populated", "empty"))
+
+df_RC_metapop = df_metapop %>%
+  group_by(replica, landscape_patches, landscape_type, species, community, landscape) %>%
+  mutate(A_diff=(metapopulation_size+lead(metapopulation_size))/2*dt) %>%
+  summarise(A_diff=sum(A_diff,na.rm=TRUE)) %>%
+  left_join(., df_metapop %>% filter(t==0) %>% select(-t) %>%
+              rename(metapop_t0=metapopulation_size)) %>%
+  mutate(recovery=A_diff,
+         A_diff=A_diff-metapop_t0*tmax) %>%
+  ungroup()
+
+
+# PLOTS - experiment ----
+
+plot_model_prediction_fullfig_1(df_RC_pop, df_RC_metapop, df_RC_pop_exp, df_RC_metapop_exp,
+                                df_comms, species_plot="A1")
+
+
+# TIME SERIES
+
+ggplot(data=filter(df_pop, species=="A1") %>% na.omit(), 
+       aes(x=t, y=population_size, group=interaction(replica,community), col=community)) +
+  geom_line(alpha=0.1) +
+  #geom_vline(xintercept=c(7,16,23,32)) +
+  facet_grid(landscape~patch, scales="free_y") +
+  coord_cartesian(x=c(0,NA), y=c(0,NA)) +
+  scale_color_manual(values=palette_community) +
+  labs(x="time (day)", y="population size") +
+  guides(colour=guide_legend(override.aes=list(alpha=1))) +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        strip.text=element_text(size=8), 
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        legend.position="bottom")
+
+# relative contributions of community and dispersal dynamics
+df_pop = df_pop %>%
+  left_join(., df_pop %>% filter(t==0) %>% 
+              mutate(patch_type=ifelse(population_size==0,"empty","populated")) %>%
+              select(landscape, community, species, patch, replica, patch_type)) %>%
+  mutate(dN_disp_fract=dN_disp/(abs(dN_disp)+abs(dN_comm)),
+         dN_disp_fract=ifelse(is.nan(dN_disp_fract),0,dN_disp_fract))
+
+ggplot(data=filter(df_pop, species=="A1") %>% 
+         na.omit(), 
+       aes(x=t, group=interaction(patch,replica), linetype=patch_type)) +
+  geom_line(aes(y=dN_comm, col="community"), alpha=0.1) +
+  geom_line(aes(y=dN_disp, col="dispersal"), alpha=0.1) +
+  geom_hline(yintercept=0) +
+  facet_grid(community~landscape, scales="free_y") +
+  scale_color_manual(values=c(col_green,"black")) +
+  scale_linetype_manual(values=c("dotted","solid")) +
+  labs(x="time (day)", y="contribution of community or dispersal processes to population change",
+       col="process", linetype="patch type") +
+  guides(colour=guide_legend(override.aes=list(alpha=1))) +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
+        strip.text=element_text(size=8), 
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        legend.position="bottom")
+
+ggplot(data=filter(df_pop, species=="A1") %>% 
+         na.omit(), 
+       aes(x=t, y=dN_disp_fract, group=interaction(patch,replica), linetype=patch_type)) +
+  geom_hline(yintercept=0) +
+  geom_line(alpha=0.1) +
+  facet_grid(community~landscape, scales="free_y") +
+  scale_linetype_manual(values=c("dotted","solid")) +
+  labs(x="time (day)", y="relative contribution of dispersal to population change", 
+       linetype="patch type") +
+  guides(colour=guide_legend(override.aes=list(alpha=1))) +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
+        strip.text=element_text(size=8), 
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        legend.position="bottom")
+
+# observed food web
+df_foodweb = df_pop  %>%
+  mutate(count=ifelse(is.na(population_size),0,population_size))
+df_foodweb = df_foodweb %>%
+  filter(species %in% c("A1","A2")) %>%
+  left_join(., df_foodweb %>% filter(t==0) %>% 
+              mutate(patch_type=ifelse(population_size==0,"empty","populated")) %>%
+              select(landscape, community, species, patch, replica, patch_type)) %>%
+  mutate(aphids_present=ifelse(population_size>0 & species=="A1",1,
+                               ifelse(population_size>0 & species=="A2",2,0))) %>%
+  group_by(community, landscape, replica, patch, patch_type, t) %>%
+  summarise(total=sum(aphids_present)) %>%
+  mutate(aphids_present=ifelse(total==1,"BB only",ifelse(total==2,"LE only",ifelse(total==3,"BB&LE","none"))))
+df_foodweb$aphids_present = factor(df_foodweb$aphids_present, levels=c("none","BB only","LE only","BB&LE"))
+
+ggplot(data=filter(df_foodweb, patch_type=="empty"), 
+       aes(x=t, y=aphids_present, group=interaction(patch,replica), col=aphids_present)) +
+  geom_jitter(alpha=0.1) +
+  facet_grid(community~landscape, scales="free_y") +
+  scale_color_brewer(palette="Dark2") +
+  labs(x="time (day)", y="aphid species present", col="aphid species present") +
+  guides(colour=guide_legend(override.aes=list(alpha=1))) +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        axis.title=element_text(size=8), axis.text=element_text(size=6), 
+        strip.text=element_text(size=8), 
+        legend.text=element_text(size=8), legend.title=element_text(size=8),
+        legend.position="bottom")
+
+
+# RECOVERY CREDIT
+
+data_plot = rbind(df_RC_pop %>%
+                    filter(patch_type=="empty") %>%
+                    group_by(community, landscape, replica, species) %>%
+                    summarise(recovery=mean(recovery)) %>%
+                    ungroup() %>%
+                    mutate(scale="empty patches"),
+                  df_RC_pop %>%
+                    filter(patch_type=="populated") %>%
+                    group_by(community, landscape, replica, species) %>%
+                    summarise(recovery=mean(recovery)) %>%
+                    ungroup() %>%
+                    mutate(scale="populated patches"),
+                  df_RC_metapop %>% select(-c(landscape_patches, landscape_type, A_diff, metapop_t0)) %>%
+                    mutate(scale="metapopulation"))
+data_plot$scale =  factor(data_plot$scale, c("empty patches","populated patches","metapopulation"))
+
+
+ggplot(data=filter(data_plot, species=="A1"),
+       aes(x=landscape, y=recovery, col=landscape)) +
+  geom_jitter(alpha=0.1) +
+  geom_boxplot(alpha=0) +
+  facet_grid(scale~community, scales="free_y") +
+  scale_color_manual(values=palette_landscape) +
+  labs(y="recovery credit") +
+  theme(panel.background=element_rect(fill="white", colour="grey"),
+        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
+        axis.title=element_text(size=8), axis.text=element_text(size=8), 
+        strip.text=element_text(size=8), 
+        legend.position="none")
+
+
+# STATISTICAL ANALYSIS - experiment ----
+
+# average across equivalent patches
+# EMPTY PATCHES
+data_test = df_RC_pop %>%
+  filter(patch_type=="empty", species=="A1") %>%
+  group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+  summarise(recovery=mean(recovery)) %>%
+  ungroup() %>%
+  mutate(scale="empty patches") %>%
+  left_join(., df_comms)
+# POPULATED PATCHES
+data_test = df_RC_pop %>%
+  filter(patch_type=="populated", species=="A1") %>%
+  group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+  summarise(recovery=mean(recovery)) %>%
+  ungroup() %>%
+  mutate(scale="populated patches") %>%
+  left_join(., df_comms)
+# METAPOPULATION
+data_test = df_RC_metapop %>%
+  filter(species=="A1") %>%
+  mutate(scale="metapopulation") %>%
+  left_join(., df_comms)
+
+# linear anova, recovery log(x+1) transformed (to deal with 0-values)
+anova_m2 = lm(log1p(recovery) ~ landscape_patches*landscape_type*community, data=data_test)
+anova(anova_m2)
+performance::check_model(anova_m2) 
+
+# average predictions
+pred_landscape_patches = avg_predictions(anova_m2, variables="landscape_patches", by="landscape_patches")
+pred_landscape_type = avg_predictions(anova_m2, variables="landscape_type", by="landscape_type")
+pred_community = avg_predictions(anova_m2, variables="community", by="community") 
+
+# average comparisons
+comp_patches = avg_comparisons(anova_m2, variables="landscape_patches")
+comp_type = avg_comparisons(anova_m2, variables="landscape_type")
+comp_community = avg_predictions(anova_m2, variables="community", hypothesis=c("b2-b1=0","b3-b2=0"))
+
+# % change
+comp_patches$estimate / pred_landscape_patches$estimate[1] * 100
+comp_type$estimate / pred_landscape_type$estimate[1] * 100
+c(comp_community$estimate[1] / pred_community$estimate[1] * 100,
+  comp_community$estimate[2] / pred_community$estimate[2] * 100)
+
+# pariswise comparisons
+pwc_patches <- marginaleffects::comparisons(anova_m2, variables="landscape_patches", by=c("landscape_type")) %>%
+  mutate(sig=ifelse(p.value<=0.001,"***",ifelse(p.value<=0.01,"**",ifelse(p.value<=0.05,"*",ifelse(p.value<=0.1,".","ns")))))
+pwc_type <- marginaleffects::comparisons(anova_m2, variables="landscape_type", by=c("landscape_patches")) %>%
+  mutate(sig=ifelse(p.value<=0.001,"***",ifelse(p.value<=0.01,"**",ifelse(p.value<=0.05,"*",ifelse(p.value<=0.1,".","ns")))))
+
 
 # SIMULATIONS - larger systems ----
 
@@ -903,6 +1418,20 @@ df_RC_metapop = df_metapop %>%
 
 # PLOTS - larger systems ----
 
+plot_model_prediction_fullfig_2(df_RC_pop, df_RC_metapop,
+                                df_comms, species_plot="A1")
+
+# empty patches
+# average across equivalent patches
+data_test = df_RC_pop %>%
+  filter(patch_type=="empty", species=="A1") %>%
+  group_by(community, landscape_patches, landscape_type, landscape, replica) %>%
+  summarise(recovery=mean(recovery)) %>%
+  ungroup() %>%
+  mutate(scale="empty patches")
+
+plot_model_prediction_partfig_3(data_test, df_comms)
+
 # TIME SERIES
 
 df_metapop = df_metapop %>%
@@ -923,95 +1452,6 @@ ggplot(data=filter(df_metapop, species=="A1"),
         strip.text=element_text(size=8), 
         legend.text=element_text(size=8), legend.title=element_text(size=8),
         legend.position="bottom")
-
-
-df_pop = df_pop %>%
-  left_join(., df_pop %>% filter(t==0) %>% 
-              mutate(patch_type=ifelse(population_size==0,"empty","populated")) %>%
-              select(landscape, community, species, patch, replica, patch_type)) %>%
-  mutate(dN_disp_fract=dN_disp/(abs(dN_disp)+abs(dN_comm)),
-         dN_disp_fract=ifelse(is.nan(dN_disp_fract),0,dN_disp_fract))
-
-ggplot(data=filter(df_pop, species=="A1", community=="1A") %>% 
-         na.omit(), 
-       aes(x=t, y=dN_disp_fract, group=interaction(patch,replica), col=patch_type)) +
-  geom_hline(yintercept=0) +
-  geom_line(alpha=0.1) +
-  facet_grid(landscape~patch_type) +
-  scale_color_manual(values=c("black",col_green)) +
-  labs(x="time (day)", y="relative contribution of dispersal to population change", col="patch type") +
-  guides(colour=guide_legend(override.aes=list(alpha=1))) +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=6), 
-        strip.text=element_text(size=8), 
-        legend.text=element_text(size=8), legend.title=element_text(size=8),
-        legend.position="bottom")
-
-
-# RECOVERY CREDIT
-
-data_plot = rbind(df_RC_pop %>%
-                    filter(patch_type=="empty") %>%
-                    group_by(community, landscape, replica, species) %>%
-                    summarise(recovery=mean(recovery)) %>%
-                    ungroup() %>%
-                    mutate(scale="empty patches"),
-                  df_RC_pop %>%
-                    filter(patch_type=="populated") %>%
-                    group_by(community, landscape, replica, species) %>%
-                    summarise(recovery=mean(recovery)) %>%
-                    ungroup() %>%
-                    mutate(scale="populated patches"),
-                  df_RC_metapop %>% select(-c(landscape_patches, landscape_type, A_diff, metapop_t0)) %>%
-                    mutate(scale="metapopulation")) %>%
-  filter(species=="A1") %>%
-  left_join(., df_comms) %>%
-  mutate(community=as.factor(fct_reorder(community, n_species+0.01*trophic_levels)))
-data_plot$scale =  factor(data_plot$scale, c("empty patches","populated patches","metapopulation"))
-
-
-ggplot(data=filter(data_plot, scale=="empty patches"),
-       aes(x=landscape, y=recovery, col=landscape)) +
-  geom_jitter(alpha=0.1) +
-  geom_boxplot(alpha=0) +
-  facet_wrap(~community, scales="free_y") +
-  scale_color_manual(values=palette_landscape) +
-  lims(y=c(0,NA)) +
-  labs(y="recovery credit") +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=6), 
-        strip.text=element_text(size=8), 
-        legend.position="none")
-
-ggplot(data=filter(data_plot, scale=="populated patches"),
-       aes(x=landscape, y=recovery, col=landscape)) +
-  geom_jitter(alpha=0.1) +
-  geom_boxplot(alpha=0) +
-  facet_wrap(~community, scales="free_y") +
-  scale_color_manual(values=palette_landscape) +
-  lims(y=c(0,NA)) +
-  labs(y="recovery credit") +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=6), 
-        strip.text=element_text(size=8), 
-        legend.position="none")
-
-ggplot(data=filter(data_plot, scale=="metapopulation"),
-       aes(x=landscape, y=recovery, col=landscape)) +
-  geom_jitter(alpha=0.1) +
-  geom_boxplot(alpha=0) +
-  facet_wrap(~community, scales="free_y") +
-  scale_color_manual(values=palette_landscape) +
-  lims(y=c(0,NA)) +
-  labs(y="recovery credit") +
-  theme(panel.background=element_rect(fill="white", colour="grey"),
-        panel.grid.major=element_blank(), panel.grid.minor=element_blank(),
-        axis.title=element_text(size=8), axis.text=element_text(size=6), 
-        strip.text=element_text(size=8), 
-        legend.position="none")
 
 
 # STATISTICAL ANALYSIS - larger systems ----
@@ -1105,13 +1545,3 @@ ggplot(data=df_comm_effect,
         strip.text=element_text(size=10),
         legend.text=element_text(size=6), legend.title=element_text(size=8),
         legend.position="right")
-
-
-# PLOTS - combined experiment & simulations ----
-
-# import experimental results
-df_RC_pop_exp = read.csv("Output/data_recovery_pop_exp.csv")
-df_RC_metapop_exp = read.csv("Output/data_recovery_metapop_exp.csv")
-
-plot_model_prediction_fullfig4(df_RC_pop, df_RC_metapop, df_RC_pop_exp, df_RC_metapop_exp,
-                               df_comms, species_plot="A1")
