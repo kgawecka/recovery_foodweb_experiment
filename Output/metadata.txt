@@ -1,9 +1,11 @@
 BRBR = aphid Brevicoryne brassicae
 LIER = aphid Lipaphis erysimi
+MYPE = aphid Myzus persicae
 DIRA = parasitoid Diaeretiella rapae
+APCO = parasitoid Aphidius colemani
+ALFU = hyperparasitoid Alloxysta fuscicornis
 
-
-data_recovery_metapop_exp.csv
+data_recovery_metapop_exp.csv - metapopulation recovery credit computed on experimental data
 
 community - insect community
 - 1A = aphid BRBR
@@ -23,7 +25,7 @@ landscape_patches - number of initially populated patches in the landscape
 landscape_type - location of initially populated patches in the landscape
 
 
-data_recovery_pop_exp.csv
+data_recovery_pop_exp.csv - population recovery credit computed on experimental data
 
 community - insect community
 - 1A = aphid BRBR
@@ -35,6 +37,7 @@ landscape - landscape configuration
 - 4C = insect community in four central patches (patches 1-4)
 - 4P = insect community in four peripheral patches (patches 2-5)
 replica - setup replica
+patch - patch number
 aphid - aphid species
 - BB = aphid BRBR
 - LE = aphid LIER
@@ -46,3 +49,23 @@ landscape_type - location of initially populated patches in the landscape
 
 
 M_land_50.csv - adjacency matrix of simulated landscape with 50 patches
+
+
+out_X_Y.csv - output of metacommunity model simulations as time series of species abundance (X = simulated insect community, Y = number of patches in simulated landscape)
+
+t - time (days)
+patch - patch number
+species - insect species
+- A1 = aphid BRBR
+- A2 = aphid LIER
+- A3 = aphid MYPE
+- P1 = parasitoid DIRA
+- P2 = parasitoid APCO
+- H = hyperparasitoid ALFU
+population_size - number of individuals
+dN_comm - change in population size due to local community processes
+dN_disp - change in population size due to dispersal processes
+replica - simulation replica
+landscape_patches - number of initially populated patches in the landscape
+landscape_type - location of initially populated patches in the landscape
+community - insect community ([number of aphid species]A_[number of parasitoid species]P_[number hyperparasitoid species])
