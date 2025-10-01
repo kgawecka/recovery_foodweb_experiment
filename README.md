@@ -35,3 +35,5 @@ All code was created in R version 4.4.0.
 `data_recovery_pop_exp.csv` - population recovery credit computed on experimental data (output of `experiment_analysis.R`)
 
 `M_land_50.csv` - simulated landscape adjacency matrix (output of `model_simulations.R`)
+
+`out_X_Y.csv` - output of metacommunity model simulations as time series of species abundance (output of `model_simulations.R`); X - simulated community; Y - number of patches in simulated landscape
