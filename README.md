@@ -1,6 +1,6 @@
 # Ecological recovery: the roles of space and food web complexity
 
-This repository contains the data and code used in the manuscript [Gawecka, K.A, Barbour, M.A., Bullock, J.M. Bascompte, J. (2025) "The roles of space and food web complexity in mediating ecological recovery". _Ecology Letters](https://www.biorxiv.org/content/10.1101/2025.05.13.653715v1).
+This repository contains the data and code used in the manuscript [Gawecka, K.A, Barbour, M.A., Bullock, J.M. Bascompte, J. (2025) "The roles of space and food web complexity in mediating ecological recovery" Ecology Letters](https://www.biorxiv.org/content/10.1101/2025.05.13.653715v1).
 
 All data and code have been archived on [Zenodo](https://zenodo.org/records/17242669), and are available under a CC-BY-4 license.
 
