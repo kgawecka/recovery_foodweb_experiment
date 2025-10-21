@@ -1,3 +1,18 @@
+# Author: Klementyna A. Gawecka
+#
+# Assiciated manuscript:
+#  Gawecka, K.A,  Barbour, M.A., Bullock, J.M. Bascompte, J. (2025) 
+#  "The roles of space and food web complexity in mediating ecological recovery"
+#  Ecology Letters
+#
+# Description:
+# This script runs the analysis for the main experiment and generates
+# the manuscript figures.
+# 
+# How to run:
+# Run from the project root after installing the required packages.
+# Inputs are in /Data/ and outputs are written to /Output/.
+
 rm(list=ls())
 
 # load packages

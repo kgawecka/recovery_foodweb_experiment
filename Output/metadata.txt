@@ -1,3 +1,9 @@
+Metadata for code output for:
+  Gawecka, K.A,  Barbour, M.A., Bullock, J.M. Bascompte, J. (2025) 
+  "The roles of space and food web complexity in mediating ecological recovery"
+  Ecology Letters
+
+Abbreviations:
 BRBR = aphid Brevicoryne brassicae
 LIER = aphid Lipaphis erysimi
 MYPE = aphid Myzus persicae

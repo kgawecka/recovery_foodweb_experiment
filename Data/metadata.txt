@@ -1,9 +1,15 @@
+Metadata for datasets used in:
+  Gawecka, K.A,  Barbour, M.A., Bullock, J.M. Bascompte, J. (2025) 
+  "The roles of space and food web complexity in mediating ecological recovery"
+  Ecology Letters
+
+Abbreviations:
 BRBR = aphid Brevicoryne brassicae
 LIER = aphid Lipaphis erysimi
 DIRA = parasitoid Diaeretiella rapae
 
 
-experiment_data.csv
+experiment_data.csv - main experiment data
 
 initials - person recording the observation
 date - date of observation
@@ -23,7 +29,7 @@ patchX_BRBR - number of observed BRBR in patch X
 patchX_LIER - number of observed LIER in patch X
 
 
-parameterisation_data_BRBR.csv & parameterisation_data_LIER.csv
+parameterisation_data_BRBR.csv & parameterisation_data_LIER.csv - parameterisation experiments data - single aphid species response
 
 initials - person recording the observation
 date - date of observation
@@ -35,7 +41,7 @@ patch2_wingless - number of observed wingless aphids in patch 2 (initially empty
 patch2_winged - number of observed winged aphids in patch 2 (initially empty patch)
 
 
-parameterisation_data_BRBR_LIER.csv
+parameterisation_data_BRBR_LIER.csv - parameterisation experiments data - two aphid species response
 
 initials - person recording the observation
 date - date of observation
@@ -46,7 +52,7 @@ LIER_wingless - number of observed wingless LIER
 winged_total - number of observed winged aphids
 
 
-parameterisation_data_DIRA_dispersal.csv
+parameterisation_data_DIRA_dispersal.csv - parameterisation experiments data - parasitoid dispersal
 
 initials - person recording the observation
 date - date of observation
@@ -58,7 +64,7 @@ patch2_ptoids - number of observed DIRA in patch 2 (initially empty patch)
 t_day = number of days since start of experiment
 
 
-parameterisation_data_DIRA_emergence.csv
+parameterisation_data_DIRA_emergence.csv - parameterisation experiments data - parasitoid emergence from mummies
 
 date_setup - date of start of experiment
 date_emerged_count - date of emerged DIRA observed and counted
@@ -66,7 +72,7 @@ aphid_species - aphid species used
 no_emerged - observed number of emerged DIRA
 
 
-parameterisation_data_DIRA_females.csv
+parameterisation_data_DIRA_females.csv - parameterisation experiments data - parasitoid proportion of females
 
 initials - person recording the observation
 date - date of observation
@@ -77,7 +83,7 @@ no_females - number of collected female DIRA
 no_males - number of collected male DIRA
 
 
-parameterisation_data_DIRA_function.csv & parameterisation_data_DIRA_parasitism.csv
+parameterisation_data_DIRA_function.csv & parameterisation_data_DIRA_parasitism.csv - parameterisation experiments data - parasitoid functional response and maximum parasitism rate
 
 initials - person recording the observation
 date_setup - date of start of experiment
@@ -88,7 +94,7 @@ replica - setup replica
 no_mummies - observed number of DIRA mummies
 
 
-parameterisation_data_DIRA_mortality.csv
+parameterisation_data_DIRA_mortality.csv - parameterisation experiments data - parasitoid mortality
 
 initials - person recording the observation
 date - date of observation
@@ -97,7 +103,7 @@ replica - setup replica
 no_ptoids - observed number of live DIRA
 
 
-model_parameters.csv
+model_parameters.csv - metacommunity model parameters determined in parameterisation procedure
 
 parameter - model parameter
 - r1 = intrinsic growth rate of BRBR
